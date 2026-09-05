@@ -1,3 +1,4 @@
+import {MusicPlayer,MUSIC_TRACKS} from './music.ts';
 import {createTouchControls} from './touch.ts';
 import {createAdventureUI} from './adventure-ui.ts';
 import {initialContent,restoreContent,reduceContent,contentObjective,irisCanBeObserved,IRIS_ENDING,CLUE_TEXT,type ContentAction} from './content.ts';
@@ -270,7 +271,47 @@ $('mobile-quality').onclick=()=>{const next=quality==='economy'?'balanced':quali
 if(touchMode){applyQuality('economy');$<HTMLSelectElement>('quality-select').value='economy';$('overview-label').querySelector('small')!.textContent='Потяни планету для вращения · Два пальца — масштаб · Меню — назад';}
 let bellSoundAt=-3;
 let audio:AudioContext|undefined,audioOn=false,audioTimer:ReturnType<typeof setInterval>|undefined;
-$('sound').onclick=async()=>{try{if(!audio)audio=new AudioContext();await audio.resume();audioOn=!audioOn;$('sound').style.background=audioOn?'#738568':'#24363555';$('sound').setAttribute('aria-label',audioOn?'Выключить звук':'Включить звук');$('sound').setAttribute('aria-pressed',String(audioOn));if(audioTimer)clearInterval(audioTimer);if(audioOn){const chirp=()=>{if(!audio||!audioOn)return;const o=audio.createOscillator(),g=audio.createGain();o.type='sine';o.frequency.setValueAtTime(1600+Math.random()*800,audio.currentTime);o.frequency.exponentialRampToValueAtTime(2600,audio.currentTime+.1);g.gain.setValueAtTime(0,audio.currentTime);g.gain.linearRampToValueAtTime(.012,audio.currentTime+.025);g.gain.exponentialRampToValueAtTime(.0001,audio.currentTime+.23);o.connect(g).connect(audio.destination);o.start();o.stop(audio.currentTime+.25);};chirp();audioTimer=setInterval(chirp,2400);}}catch{toast('Звук недоступен в этом браузере.');}};
+const music=new MusicPlayer(new Audio(),MUSIC_TRACKS,import.meta.env.BASE_URL,
+ track=>{$('music-current').textContent=track.title;},
+ ()=>{$('music-current').textContent='Трек не загрузился. Попробуй следующий или включи звук снова.';});
+$('music-current').textContent=MUSIC_TRACKS[0].title;
+for(const track of MUSIC_TRACKS){
+ const item=document.createElement('li'),link=document.createElement('a');
+ link.href=`https://incompetech.com/music/royalty-free/index.html?isrc=${track.isrc}`;
+ link.textContent=track.title;link.target='_blank';link.rel='noopener noreferrer';item.append(link);$('music-credits').append(item);
+}
+function toggleSound(){
+ audioOn=!audioOn;music.setEnabled(audioOn);
+ $('sound').style.background=audioOn?'#738568':'#24363555';
+ for(const id of ['sound','music-toggle']){
+  $(id).setAttribute('aria-label',audioOn?'Выключить музыку и звуки':'Включить музыку и звуки');
+  $(id).setAttribute('aria-pressed',String(audioOn));
+ }
+ $('music-toggle').textContent=audioOn?'♫ Звук включён':'♫ Включить звук';
+ if(audioTimer){clearInterval(audioTimer);audioTimer=undefined;}
+ if(!audioOn)return;
+ try{
+  if(!audio)audio=new AudioContext();
+  void audio.resume().catch(()=>toast('Звуки природы недоступны в этом браузере.'));
+  const chirp=()=>{
+   if(!audio||!audioOn||document.hidden||audio.state!=='running')return;
+   const o=audio.createOscillator(),g=audio.createGain();o.type='sine';
+   o.frequency.setValueAtTime(1600+Math.random()*800,audio.currentTime);
+   o.frequency.exponentialRampToValueAtTime(2600,audio.currentTime+.1);
+   g.gain.setValueAtTime(0,audio.currentTime);g.gain.linearRampToValueAtTime(.012,audio.currentTime+.025);
+   g.gain.exponentialRampToValueAtTime(.0001,audio.currentTime+.23);
+   o.connect(g).connect(audio.destination);o.start();o.stop(audio.currentTime+.25);
+  };
+  chirp();audioTimer=setInterval(chirp,2400);
+ }catch{toast('Звуки природы недоступны в этом браузере.');}
+}
+$('sound').onclick=toggleSound;
+$('music-toggle').onclick=toggleSound;
+$('music-next').onclick=()=>music.next();
+$('music-volume').oninput=()=>music.setVolume(Number($<HTMLInputElement>('music-volume').value)/100);
+music.setHidden(document.hidden);
+document.addEventListener('visibilitychange',()=>music.setHidden(document.hidden));
+
 const facing=player.forward.clone(),right=new T.Vector3(),matrix=new T.Matrix4(),desiredCamera=new T.Vector3(),desiredUp=new T.Vector3(),look=new T.Vector3(),cameraLook=new T.Vector3(-25,0,0);
 function pose(object:T.Object3D,up:T.Vector3,heading:T.Vector3,height:number){right.crossVectors(heading,up).normalize();matrix.makeBasis(right,up,heading.clone().negate());object.quaternion.setFromRotationMatrix(matrix);object.position.copy(up).multiplyScalar(height);}
 function nearby(){
