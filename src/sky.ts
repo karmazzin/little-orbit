@@ -1,3 +1,4 @@
+import {createAtmosphere} from './atmosphere.ts';
 import * as T from 'three';
 import {resizeShadow} from './shadows.ts';
 export const DAY_SECONDS=360;
@@ -29,6 +30,7 @@ export function localPhase(seconds:number,up:T.Vector3){
  return solarState(seconds+.2).sunDirection.dot(up)>altitude?'Рассвет':'Закат';
 }
 export function createSky(scene:T.Scene,stars:T.Points<T.BufferGeometry,T.PointsMaterial>){
+ const atmosphere=createAtmosphere(scene);
  const ambient=new T.AmbientLight(0xb5c9ee,.25);
  const fill=new T.HemisphereLight(0xb8dfff,0x324b60,.6);
  const sun=new T.DirectionalLight(0xffedcf,3);
@@ -45,8 +47,9 @@ export function createSky(scene:T.Scene,stars:T.Points<T.BufferGeometry,T.Points
   #include <colorspace_fragment>
   }`});
  const dome=new T.Mesh(new T.SphereGeometry(850,32,16),domeMat);dome.renderOrder=-100;dome.frustumCulled=false;scene.add(dome);
- return {sun,syncSun(direction:T.Vector3){sun.position.copy(direction).multiplyScalar(220);},followCamera(camera:T.PerspectiveCamera,space:boolean){dome.position.copy(camera.position);dome.visible=!space;},update(seconds:number,camera:T.PerspectiveCamera,up:T.Vector3,space:boolean){
+ return {sun,syncSun(direction:T.Vector3){sun.position.copy(direction).multiplyScalar(220);},followCamera(camera:T.PerspectiveCamera,space:boolean){atmosphere.updateView(camera,space);dome.position.copy(camera.position);dome.visible=!space;},update(seconds:number,camera:T.PerspectiveCamera,up:T.Vector3,space:boolean){
   const state=solarState(seconds),sky=localSky(state.sunDirection,up);
+  atmosphere.updateSun(state.sunDirection);atmosphere.updateView(camera,space);
   sun.color.set(0xffedcf).lerp(new T.Color(0xffc391),space?0:sky.twilight*.6);
   sun.intensity=3.2;
   ambient.intensity=space?.16:.28+sky.daylight*.26;

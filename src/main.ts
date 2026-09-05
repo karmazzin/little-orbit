@@ -277,10 +277,17 @@ const soundscape=new Soundscape(world.soundTrees);
 const worldAudio=new WorldAudio(import.meta.env.BASE_URL,()=>{$('sound-status').textContent='Часть звуков не загрузилась. Выключи и включи звук, чтобы повторить.';});
 const hiddenBell=world.adventures.points.find(p=>p.id==='bell')!.up;
 const gardenBell=normalAt(23,5);
+const MUSIC_SAVE_KEY='little-orbit-music-v1';
+let savedMusic:string|null=null;
+try{savedMusic=localStorage.getItem(MUSIC_SAVE_KEY);}catch{}
 const music=new MusicPlayer(new Audio(),MUSIC_TRACKS,import.meta.env.BASE_URL,
  track=>{$('music-current').textContent=track.title;},
- ()=>{$('music-current').textContent='Трек не загрузился. Попробуй следующий или включи звук снова.';});
-$('music-current').textContent=MUSIC_TRACKS[0].title;
+ ()=>{$('music-current').textContent='Трек не загрузился. Попробуй следующий или включи звук снова.';},savedMusic);
+$('music-current').textContent=music.current.title;
+function saveMusic(){try{localStorage.setItem(MUSIC_SAVE_KEY,music.snapshot());}catch{}}
+window.addEventListener('pagehide',saveMusic);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)saveMusic();});
+window.setInterval(saveMusic,1000);
 for(const track of MUSIC_TRACKS){
  const item=document.createElement('li'),link=document.createElement('a');
  link.href=`https://incompetech.com/music/royalty-free/index.html?isrc=${track.isrc}`;
@@ -300,7 +307,20 @@ function toggleSound(){
 }
 $('sound').onclick=toggleSound;
 $('music-toggle').onclick=toggleSound;
-$('music-next').onclick=()=>music.next();
+function renderMusicTransition(){
+ const state=music.status,busy=state==='switching'||state==='loading';
+ const button=$<HTMLButtonElement>('music-next');
+ const label=state==='switching'?'Переключаем…':state==='loading'?'Загружаем трек…':'Следующий трек →';
+ if(button.textContent!==label)button.textContent=label;
+ button.disabled=state==='switching';button.setAttribute('aria-busy',String(busy));
+ $('music-transition').hidden=!busy;
+ const description=state==='switching'?'Плавно приглушаем текущую мелодию…':'Загружаем: '+music.current.title;
+ if(busy&&$('music-transition-label').textContent!==description)$('music-transition-label').textContent=description;
+ const progress=$<HTMLProgressElement>('music-transition-progress');
+ if(state==='switching')progress.value=music.switchProgress;
+ else if(progress.hasAttribute('value'))progress.removeAttribute('value');
+}
+$('music-next').onclick=()=>{music.next();renderMusicTransition();};
 $('music-volume').oninput=()=>music.setVolume(Number($<HTMLInputElement>('music-volume').value)/100);
 const updateMixVolumes=()=>worldAudio.setVolumes(Number($<HTMLInputElement>('ambience-volume').value)/100,Number($<HTMLInputElement>('effects-volume').value)/100);
 $('ambience-volume').oninput=updateMixVolumes;$('effects-volume').oninput=updateMixVolumes;
@@ -366,6 +386,7 @@ renderer.setAnimationLoop((ms:number)=>{
  world.adventures.update(adventureUI.state,solarSeconds,time,player.up,adventureUI.party());
  music.setDucked($<HTMLDialogElement>('conversation').open);
  music.update(frameMs/1000);
+ renderMusicTransition();
  worldAudio.setActive(started&&!overview);
  worldAudio.update(soundscape.update(dt,{up:player.up,forward:player.forward,sun:solar.state.sunDirection,
   active:audioOn&&started&&!overview,walking:!paused,moving:player.moving,grounded:player.grounded,
@@ -391,6 +412,7 @@ renderer.setAnimationLoop((ms:number)=>{
  }
  if(trackingPlanet&&!paused)look.copy(neighborSkyPosition(observedPlanet,solarSeconds));
  const ease=overview&&drag?1:1-Math.exp(-dt*3.8);camera.position.lerp(desiredCamera,ease);camera.up.lerp(desiredUp,ease).normalize();if(trackingPlanet&&!paused)cameraLook.copy(look);else cameraLook.lerp(look,ease);camera.lookAt(cameraLook);
+ camera.updateMatrixWorld();
  if(started&&(uiTick+=dt)>.1){nearby();uiTick=0;}
  if(time>toastUntil)$('toast').hidden=true;
  if((hudTick+=dt)>=.1){hudTick=0;
@@ -408,12 +430,13 @@ renderer.setAnimationLoop((ms:number)=>{
  campMarker.hidden=!overview||isPaused()||hiddenByPlanet(camera.position,new T.Sphere(campPosition,.5))||campPoint.z>1||Math.abs(campPoint.x)>1||Math.abs(campPoint.y)>1;
  if(!campMarker.hidden){campMarker.style.left=`${(campPoint.x*.5+.5)*innerWidth}px`;campMarker.style.top=`${(-campPoint.y*.5+.5)*innerHeight}px`;campMarker.textContent=`⌂ ${campFound?CAMP.name:'Одинокая палатка'} · ${Math.round(player.up.angleTo(CAMP.up)*RADIUS)} м`;}
 
+ }
+ // Screen-space names follow the same camera frame as the rendered residents.
  for(const {r,el} of nameTags){
   const distanceTo=r.up.distanceTo(player.up)*RADIUS;
   const point=r.up.clone().multiplyScalar(sample(r.up).height+2.8).project(camera);
   el.hidden=!started||overview||isPaused()||distanceTo>24||point.z>1||Math.abs(point.x)>1||Math.abs(point.y)>1;
   if(!el.hidden){el.style.left=`${(point.x*.5+.5)*innerWidth}px`;el.style.top=`${(-point.y*.5+.5)*innerHeight}px`;el.textContent=(r.id==='mira'&&story.phase!=='complete'?'◇ ':'')+r.name;}
- }
  }
  lockHint.hidden=touchMode||!started||overview||isPaused()||document.pointerLockElement===canvas||softMouse;
  skySystem.followCamera(camera,overview||!started);

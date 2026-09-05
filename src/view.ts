@@ -1,7 +1,7 @@
 import {ADVENTURE_POINTS} from './adventures.ts';
 import {buildAdventures} from './adventure-view.ts';
 import * as T from 'three';
-import {surfaceOrientation,cloudNormal} from './environment.ts';
+import {surfaceOrientation,cloudNormal,CLOUD_BASE_RADIUS} from './environment.ts';
 import {LANDMARKS,buildLandmarks} from './landmarks.ts';
 import {CAMP,createCamp} from './discoveries.ts';
 import {createNight} from './night.ts';
@@ -151,7 +151,7 @@ export function buildWorld(scene:T.Scene){
   for(let i=0;i<cloudCount;i++){
    const n=cloudNormal(i,cloudCount,seconds),altitude=n.dot(sunDirection);
    cloudColor.copy(cloudNight).lerp(cloudDay,T.MathUtils.smoothstep(altitude,-.12,.28)).lerp(cloudDusk,(1-T.MathUtils.smoothstep(Math.abs(altitude),.02,.18))*.2);
-   cloudTransform.position.copy(n).multiplyScalar(RADIUS+12+(i%4));cloudTransform.quaternion.copy(surfaceOrientation(n));cloudTransform.updateMatrix();
+   cloudTransform.position.copy(n).multiplyScalar(CLOUD_BASE_RADIUS+(i%4)*.5);cloudTransform.quaternion.copy(surfaceOrientation(n));cloudTransform.updateMatrix();
    for(let j=0;j<puffsPerCloud;j++){
     const k=i*puffsPerCloud+j,p=cloudPuffs[k];puffTransform.position.set((j-1.5)*1.9,p.y,0);puffTransform.scale.set(p.size*1.2,p.size*.35,p.size*.75);puffTransform.updateMatrix();
     cloudMatrix.multiplyMatrices(cloudTransform.matrix,puffTransform.matrix);clouds.setMatrixAt(k,cloudMatrix);clouds.setColorAt(k,cloudColor);

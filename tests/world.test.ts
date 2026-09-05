@@ -1,6 +1,7 @@
+import {createAtmosphere} from '../src/atmosphere.ts';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {Scene,Mesh,Vector3} from 'three';
+import {Scene,Mesh,Vector3,Matrix4} from 'three';
 import {buildWorld} from '../src/view.ts';
 import {normalAt,sample,RADIUS} from '../src/terrain.ts';
 import {ADA_OBSERVATORY_UP} from '../src/landmarks.ts';
@@ -63,5 +64,17 @@ test('adventure props have visible geometry and all inspection points are dry an
   assert.ok(sample(p.inspectUp).waterDepth<=.48,`${p.id} is in deep water`);
   if(p.id==='meteor')continue; // The player inspects the rock from its edge.
   assert.ok(!world.obstacles.some(o=>o.up.distanceTo(p.inspectUp)*RADIUS<o.radius+.34),`${p.id} is inside a collider`);
+ }
+});
+
+test('whole cloud puffs stay inside the atmosphere throughout their orbit',()=>{
+ const atmosphere=createAtmosphere(new Scene()),outer=atmosphere.material.uniforms.outerRadius.value;
+ const matrix=new Matrix4(),point=new Vector3(),vertices=world.clouds.geometry.getAttribute('position');
+ for(const seconds of [0,150,700]){
+  world.updateClouds(seconds);
+  for(let i=0;i<world.clouds.count;i++){
+   world.clouds.getMatrixAt(i,matrix);
+   for(let j=0;j<vertices.count;j++)assert.ok(point.fromBufferAttribute(vertices,j).applyMatrix4(matrix).length()<outer-3,'cloud protrudes through the fading atmosphere');
+  }
  }
 });

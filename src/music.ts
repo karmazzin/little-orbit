@@ -14,6 +14,8 @@ const FADE_SECONDS=4;
 /** Streaming, non-destructive gain normalization and real-time transport envelopes. */
 export class MusicPlayer {
   private index=0;
+  private queue:number[]=[];
+  private resumeTime:number|null=null;
   private enabled=false;
   private hidden=false;
   private revision=0;
@@ -26,17 +28,55 @@ export class MusicPlayer {
   private volume=.22;
   private duck=1;
   private duckTarget=1;
+  get status(){
+    if(this.failed)return 'error';
+    if(!this.enabled||this.hidden)return 'paused';
+    if(this.gap!==null)return 'waiting';
+    if(this.skip!==null)return 'switching';
+    return this.playing?'playing':'loading';
+  }
+  get switchProgress(){return this.skip===null?0:1-this.skip/FADE_SECONDS;}
   get current(){return this.tracks[this.index];}
   constructor(private media:Media,private tracks:readonly Track[],private base:string,
-    private onChange:(track:Track)=>void=()=>{},private onError:()=>void=()=>{}){
+    private onChange:(track:Track)=>void=()=>{},private onError:()=>void=()=>{},
+    saved:string|null=null,private random:()=>number=Math.random){
     if(!tracks.length)throw new Error('Music playlist is empty');
+    this.shuffle();this.index=this.queue.shift()!;
+    try{
+      const data=JSON.parse(saved??'null');
+      const files=tracks.map(track=>track.file);
+      if(data?.version===1&&files.includes(data.file)&&Array.isArray(data.queue)&&
+        data.queue.every((file:unknown)=>typeof file==='string'&&files.includes(file)&&file!==data.file)&&
+        new Set(data.queue).size===data.queue.length&&Number.isFinite(data.time)&&data.time>=0&&
+        (data.gap===null||(Number.isFinite(data.gap)&&data.gap>=0&&data.gap<=60))){
+        this.index=files.indexOf(data.file);this.queue=data.queue.map((file:string)=>files.indexOf(file));
+        this.resumeTime=data.time;this.gap=data.gap;
+      }
+    }catch{/* Ignore unavailable or stale saves. */}
     media.preload='none';media.volume=0;
+    media.addEventListener('loadedmetadata',()=>{
+      if(this.resumeTime===null)return;
+      media.currentTime=Number.isFinite(media.duration)?Math.min(this.resumeTime,Math.max(0,media.duration-.01)):this.resumeTime;
+      this.resumeTime=null;
+    });
     media.addEventListener('ended',()=>{
       if(this.failed||this.gap!==null)return;
       this.revision++;this.playing=false;media.pause();this.skip=null;this.fade=0;
       this.gap=20+Math.random()*40;this.applyVolume();
     });
     media.addEventListener('error',()=>{if(this.enabled&&!this.hidden)this.fail();});
+  }
+  snapshot(){
+    return JSON.stringify({version:1,file:this.current.file,queue:this.queue.map(i=>this.tracks[i].file),
+      time:this.resumeTime??(Number.isFinite(this.media.currentTime)?this.media.currentTime:0),gap:this.gap});
+  }
+  private shuffle(previous?:number){
+    this.queue=this.tracks.map((_,i)=>i);
+    for(let i=this.queue.length-1;i>0;i--){
+      const j=Math.floor(this.random()*(i+1));
+      [this.queue[i],this.queue[j]]=[this.queue[j],this.queue[i]];
+    }
+    if(this.queue.length>1&&this.queue[0]===previous)[this.queue[0],this.queue[1]]=[this.queue[1],this.queue[0]];
   }
   setEnabled(enabled:boolean){
     if(this.enabled===enabled)return;
@@ -78,7 +118,8 @@ export class MusicPlayer {
     this.media.volume=clamp(this.volume*(gain!==undefined&&Number.isFinite(gain)?clamp(gain):1)*this.duck*envelope);
   }
   private advance(){
-    this.revision++;this.playing=false;this.media.pause();this.index=(this.index+1)%this.tracks.length;
+    this.revision++;this.playing=false;this.media.pause();if(!this.queue.length)this.shuffle(this.index);
+    this.index=this.queue.shift()!;this.resumeTime=null;
     this.gap=null;this.skip=null;this.fade=0;this.failed=false;
     this.media.src=this.url();this.media.currentTime=0;this.applyVolume();
     this.onChange(this.current);this.sync();

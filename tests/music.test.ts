@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {MusicPlayer} from '../src/music.ts';
+import {MusicPlayer as RandomMusicPlayer} from '../src/music.ts';
+
+class MusicPlayer extends RandomMusicPlayer {
+ constructor(...args:ConstructorParameters<typeof RandomMusicPlayer>){super(args[0],args[1],args[2],args[3],args[4],args[5],()=>.999);}
+}
 
 // Node has no media decoder; this boundary records commands sent to the browser.
 class Media extends EventTarget {
@@ -107,4 +111,40 @@ test('slow playback readiness preserves the full initial fade',async()=>{
   player.update(20);assert.equal(media.volume,0);
   resolve();await Promise.resolve();player.update(2);assert.equal(media.volume,.5);
   player.update(2);assert.equal(media.volume,1);
+});
+
+test('shuffle visits every track and avoids a repeat across cycles',()=>{
+ const list=[...tracks,{title:'Three',file:'three.mp3'}];
+ const player=new RandomMusicPlayer(new Media(),list,'/',undefined,undefined,null,()=>0);
+ assert.notEqual(player.current.title,'One');
+ const seen=new Set([player.current.file]);
+ player.next();seen.add(player.current.file);player.next();seen.add(player.current.file);
+ assert.equal(seen.size,3);const last=player.current.file;player.next();assert.notEqual(player.current.file,last);
+});
+test('restores track, position and remaining queue without starting playback',()=>{
+ const media=new Media(),player=new MusicPlayer(media,tracks,'/');
+ player.setEnabled(true);media.currentTime=37.25;
+ const restoredMedia=new Media();
+ const restored=new MusicPlayer(restoredMedia,tracks,'/',undefined,undefined,player.snapshot());
+ assert.equal(restored.current.file,player.current.file);assert.equal(restoredMedia.plays.length,0);
+ restored.setEnabled(true);restoredMedia.dispatchEvent(new Event('loadedmetadata'));
+ assert.equal(restoredMedia.currentTime,37.25);
+ player.next();restored.next();assert.equal(restored.current.file,player.current.file);
+});
+test('invalid saved state is ignored',()=>{
+ for(const raw of ['no json','null','{"version":1,"queue":[]}']){
+  const player=new MusicPlayer(new Media(),tracks,'/',undefined,undefined,raw);
+  assert.equal(player.current.file,'one.mp3');
+ }
+});
+test('transition feedback follows fade, loading, mute and playback readiness',async()=>{
+ const media=new Media(),player=new MusicPlayer(media,tracks,'/');
+ assert.equal(player.status,'paused');
+ player.setEnabled(true);assert.equal(player.status,'loading');await Promise.resolve();
+ player.update(4);player.next();assert.equal(player.status,'switching');assert.equal(player.switchProgress,0);
+ player.update(2);assert.equal(player.switchProgress,.5);
+ player.setEnabled(false);assert.equal(player.status,'paused');
+ player.setEnabled(true);await Promise.resolve();player.update(2);assert.equal(player.status,'loading');
+ await Promise.resolve();assert.equal(player.status,'playing');
+ media.dispatchEvent(new Event('error'));assert.equal(player.status,'error');
 });

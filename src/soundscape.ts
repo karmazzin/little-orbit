@@ -90,7 +90,7 @@ export class Soundscape {
    const stride=moved/Math.max(dt,.001)>3.5?1.6:1.2;
    if(this.travelled>=stride){
     this.travelled%=stride;
-    shots.push({id:this.variant(`step-${footSurface(f.up)}`),gain:this.between(.17,.23),pan:0,rate:this.between(.98,1.02)});
+    shots.push({id:this.variant(`step-${footSurface(f.up)}`),gain:this.between(.1955,.2645),pan:0,rate:this.between(.98,1.02)});
    }
   }else this.travelled=0;
   return {loops,shots};
