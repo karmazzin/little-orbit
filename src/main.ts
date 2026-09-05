@@ -1,0 +1,350 @@
+import {initialContent,restoreContent,reduceContent,contentObjective,irisCanBeObserved,IRIS_ENDING,CLUE_TEXT,type ContentAction} from './content.ts';
+import {postcardMarkup} from './postcards.ts';
+import {createWildlife} from './wildlife.ts';
+import {resizeShadow} from './shadows.ts';
+import {LANDMARKS,initialExploration,restoreExploration,discoverPlace,atObservatoryNight,ADA_OBSERVATORY_UP,canRelocateResident} from './landmarks.ts';
+import {CAMP} from './discoveries.ts';
+import {hiddenByPlanet} from './sectors.ts';
+import {createSystemMap} from './system-map.ts';
+import {FrameStats,QUALITY,type Quality} from './performance.ts';
+import {createNeighbors,NEIGHBORS,neighborDirection,planetAim,neighborSkyPosition} from './planets.ts';
+import {trackballPoint,dragGlobe,globePosition} from './camera.ts';
+import {createSky,localPhase,DAY_SECONDS,YEAR_SECONDS} from './sky.ts';
+import * as T from 'three';
+import {buildWorld,character} from './view.ts';
+import {createPlayer,step} from './simulation.ts';
+import {coordinates,normalAt,sample,RADIUS} from './terrain.ts';
+import {initialStory,restoreStory,reduceStory,dialogue,LETTERS,type ResidentId,type Action,type Dialogue} from './story.ts';
+const $=<E extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as E;
+const canvas=$<HTMLCanvasElement>('world');
+let renderer:T.WebGLRenderer;
+try{renderer=new T.WebGLRenderer({canvas,antialias:true,powerPreference:'high-performance'});}catch{
+ $('loading').textContent='Не удалось запустить 3D. Открой игру в браузере с поддержкой WebGL 2 и включённым аппаратным ускорением.';throw new Error('WebGL2 unavailable');
+}
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.25));renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled=true;renderer.shadowMap.autoUpdate=false;renderer.shadowMap.type=T.VSMShadowMap;renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.15;
+const scene=new T.Scene();scene.background=new T.Color(0x15252f);scene.fog=new T.FogExp2(0x182c35,.0009);
+const camera=new T.PerspectiveCamera(43,innerWidth/innerHeight,.1,1000);
+const world=buildWorld(scene),hero=character(0xd3af66,true);scene.add(hero.root);
+const wildlife=createWildlife(scene,world.obstacles);wildlife.update(0,0,normalAt(-4,4),new T.Vector3(0,1,0));
+const skySystem=createSky(scene,world.stars);const neighbors=createNeighbors(scene);
+const frameStats=new FrameStats();let quality:Quality='balanced',debugVisible=false,debugTick=0,shadowTick=1,cloudTick=1,skyTick=1,hudTick=0,sectorTick=1,wildlifeTick=0,wildlifeTime=0;
+const debugPanel=document.createElement('section');debugPanel.id='debug-panel';debugPanel.hidden=true;
+debugPanel.innerHTML='<div class="debug-title">ОТЛАДКА <span>~ закрыть</span></div><pre id="debug-stats"></pre><label>Графика <select id="quality-select"><option value="economy">Экономная</option><option value="balanced" selected>Сбалансированная</option><option value="high">Высокая</option></select></label><small>CPU — отправка кадра, не время GPU.<br>FPS измеряется по реальным кадрам.</small>';document.body.append(debugPanel);
+function applyQuality(value:Quality){
+ quality=value;const preset=QUALITY[value];renderer.setPixelRatio(Math.min(devicePixelRatio,preset.pixelRatio));
+ resizeShadow(skySystem.sun,preset.shadowSize);renderer.shadowMap.needsUpdate=true;frameStats.reset();
+}
+$('quality-select').onchange=()=>applyQuality(($('quality-select') as HTMLSelectElement).value as Quality);
+const renderSize=new T.Vector2();
+let solar=skySystem.update(DAY_SECONDS*.43,camera,new T.Vector3(0,1,0),true);
+
+let solarSeconds=DAY_SECONDS*.43,timeSpeed=1,timeStopped=false;
+let player=createPlayer(),story=initialStory();
+try{story=restoreStory(localStorage.getItem('little-orbit-story-v1'));}catch{}
+let started=false,overview=false,distance=15,elevation=.55,time=0,accumulator=0,last=0,toastUntil=0;
+let exploration=initialExploration(),adaAtObservatory=false;try{exploration=restoreExploration(localStorage.getItem('little-orbit-exploration-v1'));}catch{}
+let campFound=false;try{campFound=localStorage.getItem('little-orbit-camp-v1')==='found';}catch{}
+let contentState=initialContent();try{contentState=restoreContent(localStorage.getItem('little-orbit-content-v1'));}catch{}
+if(campFound)contentState=reduceContent(contentState,{type:'clue',id:'camp'});
+let interactTarget:{kind:'place';id:string;name:string}|{kind:'camp';name:string}|{kind:'resident';id:ResidentId;name:string}|{kind:'letter';id:string;name:string}|null=null;
+const keys=new Set<string>();let jumpQueued=false,drag=false,softMouse=false;
+const planetOrbit={orientation:new T.Quaternion().setFromRotationMatrix(new T.Matrix4().lookAt(new T.Vector3(100,155,143),new T.Vector3(),new T.Vector3(0,1,0))),distance:Math.hypot(100,155,143)};
+let grabPoint=new T.Vector3();
+function globePointer(x:number,y:number){
+ const rect=canvas.getBoundingClientRect();
+ const radius=rect.height*.5*RADIUS/Math.sqrt(planetOrbit.distance**2-RADIUS**2)/Math.tan(T.MathUtils.degToRad(camera.fov*.5));
+ return trackballPoint((x-rect.left-rect.width*.5)/radius,(rect.top+rect.height*.5-y)/radius);
+}
+const lockHint=document.createElement('div');lockHint.className='mouse-hint';lockHint.hidden=true;lockHint.textContent='Клик по миру — управлять камерой · Esc — освободить мышь';document.body.append(lockHint);
+const systemMap=createSystemMap($('system-map'));
+const dialogs=['conversation','journal','help','system-map-dialog'].map(id=>$<HTMLDialogElement>(id));
+const isPaused=()=>dialogs.some(d=>d.open)||!$('time-panel').hidden;
+function toast(message:string){$('toast').textContent=message;$('toast').hidden=false;toastUntil=time+4;}
+function save(){try{localStorage.setItem('little-orbit-story-v1',JSON.stringify(story));}catch{toast('Прогресс сохранён только до закрытия этой вкладки.');}}
+function updateStory(action?:Action){if(action){story=reduceStory(story,action);save();}
+ $('quest-title').textContent=story.phase==='new'?'Первое знакомство':story.phase==='complete'?'Теперь ты здесь свой':'Письма на ветру';
+ $('quest-summary').textContent=story.phase==='new'?'Поговори с Мирой у почтового домика.':story.phase==='complete'?'Письма доставлены. Продолжай исследовать маленький мир.':story.letters.length===3?'Все письма найдены! Вернись к Мире у почтового домика.':'Найди три письма: у моста, на берегу и на холме.';
+ $('quest-count').textContent=story.phase==='new'?'Новая история ждёт тебя':story.phase==='complete'?'История завершена · спасибо тебе!':`${story.letters.length} / 3 писем найдено`;
+ $('progress-fill').style.width=`${story.letters.length/3*100}%`;
+ $('journal-text').textContent=$('quest-summary').textContent;
+ $('letter-list').replaceChildren(...LETTERS.map(l=>{const row=document.createElement('div');row.className='letter-row';const icon=document.createElement('span');icon.textContent=story.letters.includes(l.id)?'✓':'✉';const info=document.createElement('span');info.textContent=l.name;const hint=document.createElement('small');hint.textContent=l.hint;info.append(hint);row.append(icon,info);return row;}));
+ for(const l of world.letters)l.root.visible=story.phase==='active'&&!story.letters.includes(l.id);
+}
+updateStory();
+const campMarker=document.createElement('div');campMarker.className='camp-marker';campMarker.hidden=true;document.body.append(campMarker);
+const placeMarkers=LANDMARKS.map(place=>{const el=document.createElement('div');el.className='camp-marker';el.hidden=true;document.body.append(el);return {place,el};});
+const nameTags=world.residents.map(r=>{
+ const el=document.createElement('div');el.className='resident-label';el.hidden=true;el.textContent=r.name;document.body.append(el);return {r,el};
+});
+function openDialog(id:string){releaseMouse();keys.clear();jumpQueued=false;drag=false;for(const d of dialogs)if(d.open)d.close();$<HTMLDialogElement>(id).showModal();}
+function talk(id:ResidentId,topic='greeting'){
+ const r=world.residents.find(r=>r.id===id)!;
+ const nightTalk=id==='ada'&&adaAtObservatory&&atObservatoryNight(solarSeconds);
+ const line:Dialogue=nightTalk?(topic==='iris'?{text:'Ирис — тот лиловый мир с тонким кольцом. Он обращается вокруг солнца медленнее нашего. Иногда он прячется за горизонтом: попробуй N, чтобы следить за доступными планетами, или K, чтобы рассмотреть всю систему.',choices:[{text:'Попробую найти его'}]}:{text:'Ты всё-таки пришёл! Отсюда лучше видно небо. Я видела в старом лагере ту же схему, что выбита на Арке ветров: пять миров вокруг солнца. Когда-нибудь мы доберёмся до каждого. А сегодня начнём с наблюдений.',choices:[{text:'Расскажи об Ирисе',next:'iris'},{text:'Спасибо за этот вечер'}]}):dialogue(id,story,topic);
+ if(nightTalk&&!exploration.nightMeeting){exploration={...discoverPlace(exploration,'lookout'),nightMeeting:true};saveExploration();updateExplorationJournal();toast('Открытие: вечер у телескопа с Адой.');}
+ $('speaker').textContent=r.name;$('speaker-role').textContent=r.role;$('portrait').textContent=r.name[0];$('speech').textContent=line.text;
+ $('choices').replaceChildren(...line.choices.map(choice=>{const button=document.createElement('button');button.textContent=choice.text;button.onclick=()=>{if(choice.next){talk(id,choice.next);return;}if(choice.action){updateStory({type:choice.action});toast(choice.action==='accept'?'Новая история: «Письма на ветру»':'История завершена. В Тихой долине стало на одного друга больше.');}$<HTMLDialogElement>('conversation').close();canvas.focus();};return button;}));
+ if(id==='mira')addContentChoice('Открытки для долины',postcardConversation);
+ if(id==='ada'&&contentState.iris!=='dormant')addContentChoice('Знаки из старого лагеря',irisConversation);
+ if(!$<HTMLDialogElement>('conversation').open)openDialog('conversation');
+}
+function updateCampJournal(){
+ $('camp-journal').textContent=campFound?'✓ Лагерь астронома · В записке упоминаются огни на кольцах Ириса.':'◇ На дальней стороне есть одинокая палатка. Ищи отметку в обзоре планеты (M).';
+ $('camp-read').hidden=!campFound;
+}
+function readCamp(){
+ updateContent({type:'clue',id:'camp'});
+ campFound=true;try{localStorage.setItem('little-orbit-camp-v1','found');}catch{toast('Открытие сохранено только до закрытия вкладки.');}updateCampJournal();
+ $('speaker').textContent='Записка астронома';$('speaker-role').textContent=CAMP.name;$('portrait').textContent='✧';$('speech').textContent=CAMP.text+' На полях нарисованы каменная арка, лист и телескоп. Похоже, автор оставил ещё несколько отметок. Следующий шаг записан в журнале.';
+ const close=document.createElement('button');close.textContent='Сохранить в памяти';close.onclick=()=>{$<HTMLDialogElement>('conversation').close();};$('choices').replaceChildren(close);openDialog('conversation');
+}
+updateCampJournal();$('camp-read').onclick=readCamp;
+function saveExploration(){try{localStorage.setItem('little-orbit-exploration-v1',JSON.stringify(exploration));}catch{toast('Открытия сохранятся только до закрытия вкладки.');}}
+function updateExplorationJournal(){
+ $('discovery-count').textContent=`Открытые места · ${exploration.places.length} / ${LANDMARKS.length}`;
+ $('discovery-list').replaceChildren(...LANDMARKS.map(place=>{
+  const found=exploration.places.includes(place.id),row=document.createElement('div');row.className='discovery-row';
+  const title=document.createElement('strong');title.textContent=(found?'✓ ':'◇ ')+place.name;
+  const hint=document.createElement('p');hint.textContent=place.hint;row.append(title,hint);
+  if(found){const button=document.createElement('button');button.textContent='Перечитать';button.onclick=()=>inspectPlace(place.id);row.append(button);}return row;
+ }));
+ $('night-meeting').textContent=exploration.nightMeeting?'✓ Вечер с Адой · Пять миров и одна будущая дорога.':'✧ Ада приходит к телескопу, когда на Звёздном уступе наступает ночь.';
+}
+function markPlace(id:string){const next=discoverPlace(exploration,id);if(next===exploration)return;exploration=next;saveExploration();updateExplorationJournal();toast(`Новое место: ${LANDMARKS.find(p=>p.id===id)!.name} · записано в журнал`);}
+function inspectPlace(id:string){const place=LANDMARKS.find(p=>p.id===id);if(!place)return;markPlace(id);
+ $('speaker').textContent=place.name;$('speaker-role').textContent='ЗАПИСКИ О МЕСТЕ';$('portrait').textContent='◇';$('speech').textContent=place.text;
+ const close=document.createElement('button');close.textContent='Продолжить прогулку';close.onclick=()=>{$<HTMLDialogElement>('conversation').close();};$('choices').replaceChildren(close);
+ if(atPlace(id)){updateContent({type:'clue',id});if(contentState.clues.includes(id)&&CLUE_TEXT[id])$('speech').textContent=place.text+' '+CLUE_TEXT[id];if(contentState.postcards==='active'&&!contentState.cards.includes(id))addContentChoice('Зарисовать вид для открытки',()=>drawPostcard(id));
+ if(id==='lookout'&&contentState.iris==='searching'&&contentState.clues.length===3)addContentChoice('Наблюдать Ирис в телескоп',observeIris);}
+ openDialog('conversation');
+}
+updateExplorationJournal();
+function addContentChoice(text:string,action:()=>void){const button=document.createElement('button');button.textContent=text;button.onclick=action;$('choices').append(button);}
+function contentDialog(speaker:string,text:string){
+ $('speaker').textContent=speaker;$('speaker-role').textContent='ИСТОРИИ ТИХОЙ ДОЛИНЫ';$('portrait').textContent=speaker[0];$('speech').textContent=text;$('choices').replaceChildren();
+ addContentChoice('Продолжить прогулку',()=>{$<HTMLDialogElement>('conversation').close();});openDialog('conversation');
+}
+function updateContent(action?:ContentAction){
+ if(action){const next=reduceContent(contentState,action);if(next!==contentState){contentState=next;try{localStorage.setItem('little-orbit-content-v1',JSON.stringify(contentState));}catch{toast('Истории сохранятся только до закрытия вкладки.');}}}
+ $('postcard-status').textContent=contentState.postcards==='new'?'Мира собирает альбом красивых мест. Поговори с ней об открытках.':contentState.postcards==='complete'?'✓ Альбом передан Мире · звание «Летописец долины»':contentState.cards.length===3?'Три открытки готовы. Вернись к Мире и покажи альбом.':`Зарисовки: ${contentState.cards.length} / 3. У арки, рощи и телескопа нажми P или выбери зарисовку в осмотре по E.`;
+ $('postcard-album').innerHTML=contentState.cards.map(postcardMarkup).join('');$('iris-objective').textContent=contentObjective(contentState);
+ $('iris-clues').textContent=contentState.iris==='dormant'?'':[['camp','Записка'],['arch','Знаки арки'],['grove','Табличка рощи']].map(([id,title])=>`${contentState.clues.includes(id)?'✓':'◇'} ${title}`).join(' · ');
+ $('iris-reread').hidden=contentState.iris!=='complete';
+}
+function postcardConversation(){
+ if(contentState.postcards==='new'){contentDialog('Мира','Хочу собрать альбом нашей планеты. Принесёшь три зарисовки: Арку ветров, Медную рощу и Звёздный уступ? Подойди к месту и нажми P. Краски и бумага уже в твоём рюкзаке.');addContentChoice('Возьмусь за альбом',()=>{updateContent({type:'accept'});contentDialog('Мира','Буду ждать! Список мест и готовые открытки найдёшь в журнале J.');});}
+ else if(contentState.postcards==='active'&&contentState.cards.length===3){contentDialog('Мира','Все три места — и у каждого свой характер. Можно оставить этот альбом в почтовом домике? Копии открыток останутся в твоём журнале.');addContentChoice('Передать альбом',()=>{updateContent({type:'deliver'});contentDialog('Мира','Теперь любой гость сможет увидеть, куда отправиться. Спасибо, летописец долины! На первой странице я подписала: «Мир становится больше, когда им делятся».');});}
+ else contentDialog('Мира',contentState.postcards==='complete'?'Твой альбом теперь лежит на самом видном месте. Когда мы доберёмся до других планет, начнём второй том.':`Пока готово ${contentState.cards.length} из трёх открыток. Остались: ${LANDMARKS.filter(p=>!contentState.cards.includes(p.id)).map(p=>p.name).join(', ')}. Не торопись — главное, заметить место.`);
+}
+function atPlace(id:string){const place=LANDMARKS.find(p=>p.id===id);return started&&!overview&&!!place&&place.up.distanceTo(player.up)*RADIUS<7;}
+function drawPostcard(id?:string){
+ id??=LANDMARKS.find(p=>atPlace(p.id))?.id;
+ if(!id||!atPlace(id)){toast('Для зарисовки подойди к арке, Медной роще или телескопу.');return;}
+ if(contentState.postcards==='new'){toast('Сначала поговори с Мирой об альбоме открыток.');return;}
+ if(contentState.cards.includes(id)){toast('Этот вид уже есть в твоём альбоме.');return;}
+ markPlace(id);updateContent({type:'card',id});contentDialog('Открытка готова',`Зарисовка сохранена в журнале · ${contentState.cards.length} / 3.`);$('choices').insertAdjacentHTML('afterbegin',postcardMarkup(id));
+}
+function observeIris(){
+ if(!atPlace('lookout')||contentState.clues.length!==3)return;
+ if(!irisCanBeObserved(solarSeconds)){contentDialog('Телескоп',atObservatoryNight(solarSeconds)?'Ирис пока за горизонтом. Подожди: мир вращается, и нужная планета появится. Можно ускорить время в меню часов.':'Знаки совпали, но для наблюдения нужна ночь на этом уступе. Дождись темноты или используй меню часов.');return;}
+ updateContent({type:'observe'});observedPlanet=NEIGHBORS.findIndex(p=>p.name==='Ирис');trackingPlanet=true;contentDialog('Сигнал у кольца','В окуляре — бледно-лиловый Ирис. У края кольца повторяются три короткие вспышки и одна длинная. На схеме из рощи тот же ритм. Ты записываешь последовательность: теперь нужно показать её Аде.');
+}
+function irisConversation(){
+ if(contentState.iris==='observed'){updateContent({type:'decode'});contentDialog('Ада',IRIS_ENDING);}
+ else contentDialog('Ада',contentState.iris==='complete'?IRIS_ENDING:'Это не просто украшения: метки похожи на старый наблюдательный шифр. '+contentObjective(contentState));
+}
+$('iris-reread').onclick=()=>contentDialog('Запись Ады',IRIS_ENDING);updateContent();
+function interact(){if(!started||overview||isPaused()||!interactTarget)return;if(interactTarget.kind==='place'){inspectPlace(interactTarget.id);return;}if(interactTarget.kind==='camp'){readCamp();return;}if(interactTarget.kind==='resident')talk(interactTarget.id);else{updateStory({type:'collect',id:interactTarget.id});toast(`Найдено: ${interactTarget.name} · ${story.letters.length}/3`);}}
+function releaseMouse(){drag=false;softMouse=false;if(document.pointerLockElement===canvas)document.exitPointerLock();}
+async function captureMouse(){
+ if(!started||overview||isPaused()||document.pointerLockElement===canvas)return;
+ try{await canvas.requestPointerLock();}catch{enableSoftMouse();}
+}
+function enableSoftMouse(){if(started&&!overview&&!isPaused()){softMouse=true;toast('Камера следует за мышью над игровым полем · Esc — освободить');}}
+function toggleOverview(relock=true){if(!started||isPaused())return;overview=!overview;trackingPlanet=false;keys.clear();jumpQueued=false;releaseMouse();document.body.classList.toggle('overview',overview);$('overview-label').hidden=!overview;$('interact').hidden=true;if(!overview&&relock)void captureMouse();}
+$('start').onclick=()=>{started=true;document.body.classList.add('playing');$('hud').hidden=false;canvas.focus();void captureMouse();toast('Добро пожаловать! Мира ждёт у почтового домика.');};
+$('overview').onclick=()=>toggleOverview();
+function openSystemMap(){if(!started)return;$('time-panel').hidden=true;systemMap.update(solarSeconds);openDialog('system-map-dialog');}
+$('system-toggle').onclick=openSystemMap;
+$('journal-toggle').onclick=$('journal-bottom').onclick=()=>openDialog('journal');
+$('help-toggle').onclick=()=>openDialog('help');
+let observedPlanet=-1,trackingPlanet=false;
+function observePlanet(){
+ if(!started||overview||dialogs.some(d=>d.open))return;
+ for(let j=1;j<=NEIGHBORS.length;j++){const i=(observedPlanet+j)%NEIGHBORS.length,dir=neighborDirection(i,solarSeconds),altitude=dir.dot(player.up);if(altitude<.05)continue;
+ observedPlanet=i;trackingPlanet=true;player.forward.copy(dir).projectOnPlane(player.up).normalize();elevation=-Math.asin(altitude);$('time-panel').hidden=true;toast(`Слежение: ${NEIGHBORS[i].name} · N — следующая · мышь — ручная камера`);return;}
+ toast('Соседние планеты сейчас за горизонтом. Попробуй другое время суток.');
+}
+$('observe-planets').onclick=observePlanet;
+$('time-toggle').onclick=()=>{releaseMouse();keys.clear();jumpQueued=false;$('time-panel').hidden=!$('time-panel').hidden;};
+$('time-pause').onclick=()=>{timeStopped=!timeStopped;$('time-pause').textContent=timeStopped?'▶ Продолжить':'Ⅱ Пауза';$('time-pause').setAttribute('aria-pressed',String(timeStopped));};
+$('time-speed').onclick=()=>{timeSpeed=timeSpeed===1?5:timeSpeed===5?20:1;$('time-speed').textContent=`Скорость ×${timeSpeed}`;};
+for(const button of document.querySelectorAll<HTMLButtonElement>('[data-hour]'))button.onclick=()=>{
+ solarSeconds=Math.floor(solarSeconds/DAY_SECONDS)*DAY_SECONDS+Number(button.dataset.hour)/24*DAY_SECONDS;skyTick=1;shadowTick=1;
+};
+
+$('reset').onclick=()=>{if($('reset').dataset.confirm!=='yes'){$('reset').dataset.confirm='yes';$('reset').textContent='Подтвердить: сбросить найденные письма?';return;}story=initialStory();player=createPlayer();updateStory();save();$('reset').dataset.confirm='';$('reset').textContent='Начать историю заново';$<HTMLDialogElement>('journal').close();toast('Новая прогулка начинается.');};
+for(const el of document.querySelectorAll<HTMLButtonElement>('[data-close]'))el.onclick=()=>{$<HTMLDialogElement>(el.dataset.close!).close();canvas.focus();};
+for(const d of dialogs)d.addEventListener('close',()=>{keys.clear();canvas.focus();});
+window.addEventListener('keydown',e=>{
+ if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)&&started&&!isPaused())e.preventDefault();
+ if(e.repeat)return;
+ if(e.code==='Backquote'||e.key==='~'){e.preventDefault();debugVisible=!debugVisible;debugPanel.hidden=!debugVisible;if(debugVisible){releaseMouse();keys.clear();jumpQueued=false;}return;}
+ if(e.code==='Escape'){keys.clear();jumpQueued=false;releaseMouse();if(!$('time-panel').hidden)$('time-panel').hidden=true;else if(overview)toggleOverview(false);return;}
+ if(isPaused()||!started||e.target instanceof HTMLSelectElement)return;
+ if(e.code==='KeyP'&&!overview)drawPostcard();else if(e.code==='KeyK')openSystemMap();else if(e.code==='KeyN')observePlanet();else if(e.code==='KeyE')interact();else if(e.code==='KeyM')toggleOverview();else if(e.code==='KeyJ')openDialog('journal');else if(!overview){keys.add(e.code);if(e.code==='Space')jumpQueued=true;}
+});
+window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>{keys.clear();jumpQueued=false;releaseMouse();});document.addEventListener('visibilitychange',()=>{keys.clear();last=0;accumulator=0;frameStats.reset();});
+document.addEventListener('pointerlockchange',()=>{
+ keys.clear();jumpQueued=false;
+ if(document.pointerLockElement===canvas&&(overview||isPaused()||!started))releaseMouse();
+});
+document.addEventListener('pointerlockerror',enableSoftMouse);
+canvas.addEventListener('pointerdown',e=>{
+ if(!started||isPaused()||e.button!==0)return;
+ if(!overview){void captureMouse();return;}
+ drag=true;camera.position.copy(globePosition(planetOrbit.orientation,planetOrbit.distance));camera.up.set(0,1,0).applyQuaternion(planetOrbit.orientation);cameraLook.set(0,0,0);camera.lookAt(cameraLook);grabPoint=globePointer(e.clientX,e.clientY);canvas.setPointerCapture(e.pointerId);canvas.classList.add('dragging');
+});
+document.addEventListener('mousemove',e=>{
+ if(!started||overview||isPaused())return;
+ if(document.pointerLockElement!==canvas&&!(softMouse&&e.target===canvas))return;
+ if(e.movementX||e.movementY)trackingPlanet=false;
+ player.forward.applyAxisAngle(player.up,-e.movementX*.003).normalize();
+ elevation=T.MathUtils.clamp(elevation+e.movementY*.003,-1.42,1.15);
+});
+canvas.addEventListener('pointermove',e=>{
+ if(!drag||!overview||isPaused())return;
+ const point=globePointer(e.clientX,e.clientY);dragGlobe(planetOrbit.orientation,grabPoint,point);grabPoint=point;
+});
+function endDrag(){drag=false;canvas.classList.remove('dragging');}
+canvas.addEventListener('pointerup',endDrag);canvas.addEventListener('pointercancel',endDrag);canvas.addEventListener('lostpointercapture',endDrag);canvas.addEventListener('contextmenu',e=>e.preventDefault());
+canvas.addEventListener('wheel',e=>{
+ if(!started||isPaused())return;e.preventDefault();
+ if(overview)planetOrbit.distance=T.MathUtils.clamp(planetOrbit.distance+e.deltaY*.08,160,360);
+ else distance=T.MathUtils.clamp(distance+e.deltaY*.015,7,27);
+},{passive:false});
+window.addEventListener('resize',()=>{renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();});
+let audio:AudioContext|undefined,audioOn=false,audioTimer:ReturnType<typeof setInterval>|undefined;
+$('sound').onclick=async()=>{try{if(!audio)audio=new AudioContext();await audio.resume();audioOn=!audioOn;$('sound').style.background=audioOn?'#738568':'#24363555';$('sound').setAttribute('aria-label',audioOn?'Выключить звук':'Включить звук');$('sound').setAttribute('aria-pressed',String(audioOn));if(audioTimer)clearInterval(audioTimer);if(audioOn){const chirp=()=>{if(!audio||!audioOn)return;const o=audio.createOscillator(),g=audio.createGain();o.type='sine';o.frequency.setValueAtTime(1600+Math.random()*800,audio.currentTime);o.frequency.exponentialRampToValueAtTime(2600,audio.currentTime+.1);g.gain.setValueAtTime(0,audio.currentTime);g.gain.linearRampToValueAtTime(.012,audio.currentTime+.025);g.gain.exponentialRampToValueAtTime(.0001,audio.currentTime+.23);o.connect(g).connect(audio.destination);o.start();o.stop(audio.currentTime+.25);};chirp();audioTimer=setInterval(chirp,2400);}}catch{toast('Звук недоступен в этом браузере.');}};
+const facing=player.forward.clone(),right=new T.Vector3(),matrix=new T.Matrix4(),desiredCamera=new T.Vector3(),desiredUp=new T.Vector3(),look=new T.Vector3(),cameraLook=new T.Vector3(-25,0,0);
+function pose(object:T.Object3D,up:T.Vector3,heading:T.Vector3,height:number){right.crossVectors(heading,up).normalize();matrix.makeBasis(right,up,heading.clone().negate());object.quaternion.setFromRotationMatrix(matrix);object.position.copy(up).multiplyScalar(height);}
+function nearby(){
+ interactTarget=null;let best=3.2;
+ for(const r of world.residents){const d=r.up.distanceTo(player.up)*RADIUS;if(d<best){best=d;interactTarget={kind:'resident',id:r.id,name:r.name};}}
+ for(const l of world.letters){if(!l.root.visible)continue;const d=l.up.distanceTo(player.up)*RADIUS;if(d<best){best=d;interactTarget={kind:'letter',id:l.id,name:l.name};}}
+ const campDistance=world.camp.noteUp.distanceTo(player.up)*RADIUS;if(campDistance<best){best=campDistance;interactTarget={kind:'camp',name:CAMP.name};}
+ for(const place of world.landmarks.places){const d=place.inspectUp.distanceTo(player.up)*RADIUS;if(d<best){best=d;interactTarget={kind:'place',id:place.id,name:place.name};}if(!overview&&!isPaused()&&place.up.distanceTo(player.up)*RADIUS<7)markPlace(place.id);}
+ $('interact').hidden=!interactTarget||overview||isPaused();if(interactTarget)$('interact').querySelector('span')!.textContent=interactTarget.kind==='resident'?`Поговорить · ${interactTarget.name}`:interactTarget.kind==='camp'?'Прочитать записку':interactTarget.kind==='place'?`Осмотреть · ${interactTarget.name}`:'Подобрать письмо';
+ const {x,z}=coordinates(player.up);let name='Зелёные холмы',sub='За каждым холмом — что-то новое';
+ if(player.up.distanceTo(CAMP.up)*RADIUS<8){name=CAMP.name;sub='Кто-то тоже смотрел на далёкие миры.';}
+ else if(player.up.y<.3){name='Дальняя сторона';sub='Здесь особенно близко к звёздам';}
+ else if(z>16&&x>0){name='Озеро Тихое';sub='Остановись. Послушай воду.';}
+ else if(sample(player.up).bridge){name='Старый мост';sub='Два берега одной истории';}
+ else if(z< -21&&z> -32&&x>3&&x<16){name='Каменистый брод';sub='Здесь реку можно перейти пешком';}
+ else if(Math.hypot(x+7,z+14)<13){name='Почтовая поляна';sub='Каждое письмо кого-то ждёт';}
+ else if(Math.abs(x)<10&&Math.abs(z)<10){name='Луговая тропа';sub='Всё большое начинается с малого';}
+ const place=LANDMARKS.find(p=>p.up.distanceTo(player.up)*RADIUS<9);if(place){name=place.name;sub=place.id==='lookout'?(atObservatoryNight(solarSeconds)?'Ночь открывает соседние миры.':'Здесь ждут наступления ночи.'):'Остановись и осмотрись · E у таблички';}
+ $('location-name').textContent=name;$('location-sub').textContent=sub;
+}
+let uiTick=0;
+camera.position.set(100,155,143);camera.lookAt(cameraLook);
+renderer.setAnimationLoop((ms:number)=>{
+ if(document.hidden){last=0;return;}
+ const cpuStart=performance.now();const frameMs=last?ms-last:1000/60;
+ const dt=Math.min(frameMs/1000,.05);last=ms;time+=dt;
+ if(!timeStopped&&started&&!dialogs.some(d=>d.open&&d.id!=='system-map-dialog'))solarSeconds+=dt*timeSpeed;
+ const paused=isPaused()||overview||!started;
+ if(!paused)wildlifeTime+=dt;
+ if((wildlifeTick+=dt)>=.05){wildlife.update(wildlifeTime,paused?0:wildlifeTick,player.up,solar.state.sunDirection);wildlifeTick=0;}
+ if(!paused){accumulator+=dt;while(accumulator>=1/60){
+  const input={forward:Number(keys.has('KeyW')||keys.has('ArrowUp'))-Number(keys.has('KeyS')||keys.has('ArrowDown')),right:Number(keys.has('KeyD')||keys.has('ArrowRight'))-Number(keys.has('KeyA')||keys.has('ArrowLeft')),run:keys.has('ShiftLeft')||keys.has('ShiftRight'),jump:jumpQueued};
+  const old=player.up.clone();step(player,input,1/60,world.obstacles);jumpQueued=false;
+  facing.applyQuaternion(new T.Quaternion().setFromUnitVectors(old,player.up)).projectOnPlane(player.up).normalize();
+  if(player.moving){const direction=player.forward.clone().multiplyScalar(input.forward).addScaledVector(new T.Vector3().crossVectors(player.forward,player.up),input.right).normalize();facing.lerp(direction,.18).normalize();}
+  accumulator-=1/60;
+ }}else accumulator=0;
+ pose(hero.root,player.up,facing,sample(player.up).height+player.jumpHeight);hero.animate(time,!paused&&player.moving);
+ for(const r of world.residents){
+  if(r.id==='ada'&&!paused){const night=atObservatoryNight(solarSeconds);
+   const destination=night?ADA_OBSERVATORY_UP:r.home;
+   if(night!==adaAtObservatory&&canRelocateResident(r.up,destination,player.up,camera)){adaAtObservatory=night;r.up.copy(destination);}
+
+  }
+  const walking=!paused&&!(r.id==='ada'&&adaAtObservatory)&&Math.sin(time*.35+r.phase)>.15&&r.up.distanceTo(player.up)*RADIUS>3.5;
+  if(walking){const target=normalAt(r.x+Math.sin(time*.15+r.phase)*1.3,r.z+Math.cos(time*.15+r.phase)*1.2);if(sample(target).waterDepth<.1&&!world.obstacles.some(o=>o.up.distanceTo(target)*RADIUS<o.radius+.4)){const dir=target.clone().sub(r.up).projectOnPlane(r.up);r.up.lerp(target,.015).normalize();if(dir.lengthSq()>.00000001)pose(r.model.root,r.up,dir.normalize(),sample(r.up).height);}}
+  if(!walking){const dir=player.up.clone().sub(r.up).projectOnPlane(r.up);pose(r.model.root,r.up,dir.lengthSq()>.0001?dir.normalize():new T.Vector3(0,0,-1).projectOnPlane(r.up).normalize(),sample(r.up).height);}
+  r.model.animate(time+r.phase,walking);
+ }
+ for(const l of world.letters){l.envelope.position.y=.95+Math.sin(time*2+l.x)*.12;l.envelope.rotation.y=time*.6;l.ring.scale.setScalar(1+Math.sin(time*2)*.08);}
+ world.waveTime.value=time;world.water.material.opacity=.87+Math.sin(time*.6)*.025;if((cloudTick+=dt)>=1/20){world.updateClouds(time,solar.state.sunDirection);cloudTick=0;}
+ if(trackingPlanet&&!paused){const aim=planetAim(observedPlanet,solarSeconds,player.up,player.forward);
+  if(aim){player.forward.copy(aim.forward);elevation=aim.elevation;neighbors.update(solarSeconds);}else{trackingPlanet=false;toast(`${NEIGHBORS[observedPlanet].name} скрывается за горизонтом.`);}
+ }
+ if(overview){
+  desiredCamera.copy(globePosition(planetOrbit.orientation,planetOrbit.distance));desiredUp.set(0,1,0).applyQuaternion(planetOrbit.orientation);look.set(0,0,0);
+ }else if(!started){
+  desiredCamera.set(100+Math.sin(time*.035)*12,155,143);desiredUp.set(0,1,0);look.set(-27,0,0);
+ }else{
+  look.copy(player.position).addScaledVector(player.up,1.25);
+  desiredCamera.copy(player.position).addScaledVector(player.forward,-distance*Math.cos(elevation)).addScaledVector(player.up,distance*Math.sin(elevation)+1.5);
+  // Keep the orbit camera above hills even at its lowest angle.
+  const n=desiredCamera.clone().normalize();const min=sample(n).height+2;
+  if(desiredCamera.length()<min)desiredCamera.copy(n).multiplyScalar(min);
+  look.copy(desiredCamera).addScaledVector(player.forward,distance*Math.cos(elevation)).addScaledVector(player.up,-distance*Math.sin(elevation));
+  desiredUp.copy(player.up);
+ }
+ if(trackingPlanet&&!paused)look.copy(neighborSkyPosition(observedPlanet,solarSeconds));
+ const ease=overview&&drag?1:1-Math.exp(-dt*3.8);camera.position.lerp(desiredCamera,ease);camera.up.lerp(desiredUp,ease).normalize();if(trackingPlanet&&!paused)cameraLook.copy(look);else cameraLook.lerp(look,ease);camera.lookAt(cameraLook);
+ if(started&&(uiTick+=dt)>.1){nearby();uiTick=0;}
+ if(time>toastUntil)$('toast').hidden=true;
+ if((hudTick+=dt)>=.1){hudTick=0;
+ for(const {place,el} of placeMarkers){const position=place.up.clone().multiplyScalar(sample(place.up).height+4),point=position.clone().project(camera);
+  el.hidden=!overview||isPaused()||hiddenByPlanet(camera.position,new T.Sphere(position,1))||point.z>1||Math.abs(point.x)>1||Math.abs(point.y)>1;
+  if(!el.hidden){el.style.left=`${(point.x*.5+.5)*innerWidth}px`;el.style.top=`${(-point.y*.5+.5)*innerHeight}px`;el.textContent=`${exploration.places.includes(place.id)?'✓ '+place.name:'◇ Неизведанное место'} · ${Math.round(player.up.angleTo(place.up)*RADIUS)} м`;}
+ }
+ const campPosition=CAMP.up.clone().multiplyScalar(sample(CAMP.up).height+2.5),campPoint=campPosition.clone().project(camera);
+ campMarker.hidden=!overview||isPaused()||hiddenByPlanet(camera.position,new T.Sphere(campPosition,.5))||campPoint.z>1||Math.abs(campPoint.x)>1||Math.abs(campPoint.y)>1;
+ if(!campMarker.hidden){campMarker.style.left=`${(campPoint.x*.5+.5)*innerWidth}px`;campMarker.style.top=`${(-campPoint.y*.5+.5)*innerHeight}px`;campMarker.textContent=`⌂ ${campFound?CAMP.name:'Одинокая палатка'} · ${Math.round(player.up.angleTo(CAMP.up)*RADIUS)} м`;}
+
+ for(const {r,el} of nameTags){
+  const distanceTo=r.up.distanceTo(player.up)*RADIUS;
+  const point=r.up.clone().multiplyScalar(sample(r.up).height+2.8).project(camera);
+  el.hidden=!started||overview||isPaused()||distanceTo>24||point.z>1||Math.abs(point.x)>1||Math.abs(point.y)>1;
+  if(!el.hidden){el.style.left=`${(point.x*.5+.5)*innerWidth}px`;el.style.top=`${(-point.y*.5+.5)*innerHeight}px`;el.textContent=(r.id==='mira'&&story.phase!=='complete'?'◇ ':'')+r.name;}
+ }
+ }
+ lockHint.hidden=!started||overview||isPaused()||document.pointerLockElement===canvas||softMouse;
+ skySystem.followCamera(camera,overview||!started);
+ if((skyTick+=dt)>=.05){skyTick=0;world.night.update(time,solar.state.sunDirection);if($<HTMLDialogElement>('system-map-dialog').open)systemMap.update(solarSeconds);neighbors.update(solarSeconds);solar=skySystem.update(solarSeconds,camera,player.up,overview||!started);
+ const hours=((solarSeconds/DAY_SECONDS*24)%24+24)%24;
+ $('time-clock').textContent=`${Math.floor(hours).toString().padStart(2,'0')}:${Math.floor(hours%1*60).toString().padStart(2,'0')}`;
+ $('time-phase').textContent=localPhase(solarSeconds,player.up);
+
+ const orbitAngle=solarSeconds/YEAR_SECONDS*Math.PI*2;
+ $('orbit-dot').setAttribute('cx',String(50+39*Math.cos(orbitAngle)));$('orbit-dot').setAttribute('cy',String(35+23*Math.sin(orbitAngle)));
+ }
+ if((shadowTick+=dt)>=1/QUALITY[quality].shadowHz){renderer.shadowMap.needsUpdate=true;shadowTick%=1/QUALITY[quality].shadowHz;}
+ if((sectorTick+=dt)>=.1||drag){sectorTick=0;if(world.decor.update(camera.position,solar.state.sunDirection))renderer.shadowMap.needsUpdate=true;}
+ if(renderer.shadowMap.needsUpdate)skySystem.syncSun(solar.state.sunDirection);
+ if($<HTMLDialogElement>('system-map-dialog').open)systemMap.render();else renderer.render(scene,camera);
+ frameStats.record(frameMs,performance.now()-cpuStart);
+ if(debugVisible&&(debugTick+=dt)>=.25){debugTick=0;const stats=frameStats.snapshot();renderer.getDrawingBufferSize(renderSize);
+ $('debug-stats').textContent=`FPS          ${stats.fps.toFixed(1)}
+Кадр         ${stats.meanMs.toFixed(1)} мс
+P95 / макс   ${stats.p95Ms.toFixed(1)} / ${stats.maxMs.toFixed(1)} мс
+CPU          ${stats.cpuMs.toFixed(1)} мс
+Draw calls   ${renderer.info.render.calls}
+Треугольники ${renderer.info.render.triangles.toLocaleString('ru')}
+Секторы      ${world.decor.stats.visible} / ${world.decor.stats.total}
+Дальний LOD  ${world.decor.stats.far}
+Геометрии    ${renderer.info.memory.geometries}
+Текстуры     ${renderer.info.memory.textures}
+Буфер        ${renderSize.x} × ${renderSize.y}
+DPR          ${renderer.getPixelRatio().toFixed(2)}
+Тени         ${QUALITY[quality].shadowSize}px · ${QUALITY[quality].shadowHz} Гц`;
+ }
+
+});
+$('loading').hidden=true;
+canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();$('loading').hidden=false;$('loading').textContent='3D-контекст потерян. Обнови страницу — найденные письма сохранены.';renderer.setAnimationLoop(null);});

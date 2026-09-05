@@ -1,0 +1,7 @@
+import {LANDMARKS} from './landmarks.ts';
+/** Illustrated keepsakes, deliberately not screen captures. Only catalog data is inserted. */
+export function postcardMarkup(id:string){
+ const place=LANDMARKS.find(p=>p.id===id);if(!place)return '';
+ const art=id==='arch'?'<path d="M72 114V62L88 45H151L169 62V114H145V69H98V114Z" fill="#929f96"/><path d="M85 48L155 52" stroke="#ccd0ba" stroke-width="7"/>':id==='grove'?'<path d="M65 110V73M117 110V58M169 110V74" stroke="#715744" stroke-width="7"/><circle cx="65" cy="63" r="25" fill="#b9744f"/><circle cx="117" cy="50" r="29" fill="#d4a15b"/><circle cx="169" cy="67" r="25" fill="#c58560"/>':'<g stroke="#dac793" stroke-width="4"><path d="M120 86L99 119M120 86L140 119M120 86V120"/><path d="M111 73L148 52" stroke-width="13"/></g><circle cx="177" cy="35" r="10" fill="#b49bc4"/><ellipse cx="177" cy="35" rx="18" ry="5" fill="none" stroke="#ccb8db"/><g fill="#f3dfab"><circle cx="43" cy="24" r="1.5"/><circle cx="80" cy="39" r="1"/><circle cx="136" cy="19" r="1.5"/></g>';
+ return `<article class="postcard"><svg viewBox="0 0 240 150" role="img" aria-label="Зарисовка: ${place.name}"><rect width="240" height="150" fill="${id==='lookout'?'#293a53':'#9bc3bf'}"/><path d="M0 108Q60 73 120 105T240 100V150H0Z" fill="#738e72"/>${art}<path d="M0 134Q120 114 240 133V150H0Z" fill="#526d59"/></svg><strong>${place.name}</strong><small>Тихая долина · путевые зарисовки</small></article>`;
+}
