@@ -12,7 +12,7 @@ test('world geometry is finite and static props are batched',()=>{
  assert.ok(meshes<220,`Expected batching, got ${meshes} meshes`);
 });
 test('residents, letters and all landmark inspection points are reachable without swimming',()=>{
- const spacing=.7,minX=-65,minZ=-60,width=195,height=190;
+ const spacing=.7,minX=-65,minZ=-70,width=195,height=205;
  const passable=new Uint8Array(width*height),visited=new Uint8Array(width*height);
  const normals:Vector3[]=[];
  for(let j=0;j<height;j++)for(let i=0;i<width;i++){
@@ -28,7 +28,7 @@ test('residents, letters and all landmark inspection points are reachable withou
    visited[k]=1;queue.push(k);
   }
  }
- for(const target of [...[...RESIDENTS,...LETTERS].map(p=>({name:p.name,up:normalAt(p.x,p.z)})),...world.landmarks.places.map(p=>({name:p.name,up:p.inspectUp})),{name:'Ада у телескопа',up:ADA_OBSERVATORY_UP}]){
+ for(const target of [...[...RESIDENTS,...LETTERS].map(p=>({name:p.name,up:normalAt(p.x,p.z)})),...world.adventures.points.map(p=>({name:p.name,up:p.inspectUp})),...world.landmarks.places.map(p=>({name:p.name,up:p.inspectUp})),{name:'Ада у телескопа',up:ADA_OBSERVATORY_UP}]){
   const up=target.up;
   assert.ok(queue.some(i=>normals[i].distanceTo(up)*RADIUS<2.5),`${target.name} is unreachable`);
  }
@@ -52,5 +52,16 @@ test('water receives soft shadows without writing opaque depth into their map',(
 test('landmark plaques and the observatory resident position have clear collision space',()=>{
  for(const up of [...world.landmarks.places.map(p=>p.inspectUp),ADA_OBSERVATORY_UP]){
   assert.ok(sample(up).waterDepth<=.48);assert.ok(!world.obstacles.some(o=>o.up.distanceTo(up)*RADIUS<o.radius+.34));
+ }
+});
+
+test('adventure props have visible geometry and all inspection points are dry and clear',()=>{
+ for(const root of [world.adventures.traveler,world.adventures.festival]){
+  assert.ok(root.children.some(o=>o instanceof Mesh&&o.geometry.getAttribute('position').count>30));
+ }
+ for(const p of world.adventures.points){
+  assert.ok(sample(p.inspectUp).waterDepth<=.48,`${p.id} is in deep water`);
+  if(p.id==='meteor')continue; // The player inspects the rock from its edge.
+  assert.ok(!world.obstacles.some(o=>o.up.distanceTo(p.inspectUp)*RADIUS<o.radius+.34),`${p.id} is inside a collider`);
  }
 });

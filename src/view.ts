@@ -1,3 +1,5 @@
+import {ADVENTURE_POINTS} from './adventures.ts';
+import {buildAdventures} from './adventure-view.ts';
 import * as T from 'three';
 import {surfaceOrientation,cloudNormal} from './environment.ts';
 import {LANDMARKS,buildLandmarks} from './landmarks.ts';
@@ -102,11 +104,11 @@ export function buildWorld(scene:T.Scene){
  const water=new T.Mesh(waterGeo,waterMat);water.receiveShadow=true;
  // VSM submits receivers too; translucent water must not become an opaque caster.
  water.customDepthMaterial=new T.MeshDepthMaterial({depthWrite:false,colorWrite:false});scene.add(water);
- const statics=new T.Group();const landmarks=buildLandmarks(statics);obstacles.push(...landmarks.obstacles);const night=createNight(scene);const camp=createCamp(scene);obstacles.push(camp.obstacle);
+ const statics=new T.Group();const adventures=buildAdventures(scene,statics);obstacles.push(...adventures.obstacles);const landmarks=buildLandmarks(statics);obstacles.push(...landmarks.obstacles);const night=createNight(scene);const camp=createCamp(scene);obstacles.push(camp.obstacle);
  for(let i=0;i<600;i++){
   const n=i<250?normalAt((random()-.5)*105,(random()-.5)*105):new T.Vector3(random()-.5,random()-.5,random()-.5).normalize();
   const s=sample(n),{x,z}=coordinates(n);
-  if(n.distanceTo(CAMP.up)*RADIUS<7||LANDMARKS.some(p=>n.distanceTo(p.up)*RADIUS<9))continue;
+  if(ADVENTURE_POINTS.some(p=>n.distanceTo(p.up)*RADIUS<(p.id==='cave'?9:4))||n.distanceTo(CAMP.up)*RADIUS<7||LANDMARKS.some(p=>n.distanceTo(p.up)*RADIUS<9))continue;
   if(s.waterDepth>0||s.bridge||s.path||s.height<WATER_LEVEL+.25)continue;
   if(n.y>.5&&(RESIDENTS.some(r=>Math.hypot(r.x-x,r.z-z)<5)||LETTERS.some(l=>Math.hypot(l.x-x,l.z-z)<3)||Math.hypot(x+4,z-4)<5||Math.hypot(x+7,z+14)<6||Math.hypot(x-29,z-8)<6))continue;
   const scale=.8+random()*.8;
@@ -159,5 +161,5 @@ export function buildWorld(scene:T.Scene){
  }
  updateClouds(0);scene.add(clouds);
  const starGeo=new T.BufferGeometry(),starPos=[];for(let i=0;i<1200;i++){const n=new T.Vector3(random()-.5,random()-.5,random()-.5).normalize().multiplyScalar(450+random()*250);starPos.push(n.x,n.y,n.z);}starGeo.setAttribute('position',new T.Float32BufferAttribute(starPos,3));const stars=new T.Points(starGeo,new T.PointsMaterial({color:0xd7e9ff,size:1.8,sizeAttenuation:true,transparent:true,opacity:.7,fog:false,depthWrite:false}));scene.add(stars);
- return {landmarks,night,camp,decor,obstacles,ground,water,clouds,residents,letters,waveTime,stars,cloudMaterial:cloudMat,updateClouds};
+ return {adventures,landmarks,night,camp,decor,obstacles,ground,water,clouds,residents,letters,waveTime,stars,cloudMaterial:cloudMat,updateClouds};
 }

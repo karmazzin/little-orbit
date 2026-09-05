@@ -25,3 +25,10 @@ test('celebration requires two completed stories and an evening; traveler has ra
  assert.ok(Array.from({length:360},(_,i)=>travelerScheduled(i)).some(Boolean));
  assert.ok(!Array.from({length:360},(_,i)=>travelerScheduled(360+i)).some(Boolean));
 });
+
+test('the complete storyteller notebook counts toward the celebration and saves round-trip',()=>{
+ let s=initialAdventures();for(const id of ['amber','azure','ruby'])s=reduceAdventures(s,{type:'tale',id});
+ for(const symbol of ['sun','tree','star'])s=reduceAdventures(s,{type:'rune',symbol});
+ const evening=Array.from({length:360},(_,i)=>i).find(i=>festivalAvailable(s,0,i));assert.notEqual(evening,undefined);
+ s=reduceAdventures(s,{type:'festival',completed:0,seconds:evening!});assert.equal(s.festival,true);assert.deepEqual(restoreAdventures(JSON.stringify(s)),s);
+});

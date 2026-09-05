@@ -26,7 +26,8 @@ export function buildSectors(root:T.Group){
   const source=input.index?input.toNonIndexed():input.clone();source.applyMatrix4(o.matrixWorld);
   const geometry=new T.BufferGeometry();geometry.setAttribute('position',source.getAttribute('position').clone());geometry.setAttribute('normal',source.getAttribute('normal').clone());
   const count=geometry.getAttribute('position').count,color=(o.material as T.MeshStandardMaterial).color,colors=new Float32Array(count*3);
-  for(let i=0;i<count;i++)color.toArray(colors,i*3);
+  const vertexColors=(o.material as T.MeshStandardMaterial).vertexColors?source.getAttribute('color'):undefined;
+  for(let i=0;i<count;i++){if(vertexColors){colors[i*3]=vertexColors.getX(i)*color.r;colors[i*3+1]=vertexColors.getY(i)*color.g;colors[i*3+2]=vertexColors.getZ(i)*color.b;}else color.toArray(colors,i*3);}
   geometry.setAttribute('color',new T.BufferAttribute(colors,3));source.dispose();return geometry;
  }
  root.traverse(o=>{if(!(o instanceof T.Mesh))return;sourceMeshes++;

@@ -43,7 +43,7 @@ export function restoreAdventures(raw:string|null):Adventures{
  s.bottles=BOTTLE_IDS.filter(id=>Array.isArray(v.bottles)&&v.bottles.includes(id));s.tales=TALE_IDS.filter(id=>Array.isArray(v.tales)&&v.tales.includes(id));s.festival=v.festival===true;return s;
  }catch{return initialAdventures();}
 }
-export function completedAdventures(s:Adventures){return Number(s.meteor==='complete')+Number(s.bell==='complete')+Number(s.cave)+Number(s.bottles.length===3);}
+export function completedAdventures(s:Adventures){return Number(s.meteor==='complete')+Number(s.bell==='complete')+Number(s.cave)+Number(s.bottles.length===3)+Number(s.tales.length===3);}
 export function festivalAvailable(s:Adventures,completed:number,seconds:number){
  const up=pointById('festival').up,a=solarState(seconds).sunDirection.dot(up),next=solarState(seconds+.1).sunDirection.dot(up);
  return completed+completedAdventures(s)>=2&&a<.25&&a>-.85&&next<a;
