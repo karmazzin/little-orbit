@@ -193,7 +193,7 @@ async function captureMouse(){
 }
 function enableSoftMouse(){if(started&&!overview&&!isPaused()){softMouse=true;toast('Камера следует за мышью над игровым полем · Esc — освободить');}}
 function toggleOverview(relock=true){if(!started||isPaused())return;overview=!overview;trackingPlanet=false;keys.clear();jumpQueued=false;releaseMouse();document.body.classList.toggle('overview',overview);$('overview-label').hidden=!overview;$('interact').hidden=true;if(!overview&&relock)void captureMouse();}
-$('start').onclick=()=>{started=true;document.body.classList.add('playing');$('hud').hidden=false;canvas.focus();void captureMouse();toast(worldRestored?'Прогулка продолжается с сохранённого места.':'Добро пожаловать! Мира ждёт у почтового домика.');};
+$('start').onclick=()=>{if(!soundChosen)toggleSound();started=true;document.body.classList.add('playing');$('hud').hidden=false;canvas.focus();void captureMouse();toast(worldRestored?'Прогулка продолжается с сохранённого места.':'Добро пожаловать! Мира ждёт у почтового домика.');};
 $('overview').onclick=()=>toggleOverview();
 function openSystemMap(){if(!started)return;$('time-panel').hidden=true;systemMap.update(solarSeconds);openDialog('system-map-dialog');}
 $('system-toggle').onclick=openSystemMap;
@@ -270,7 +270,8 @@ for(const [id,action] of Object.entries({'mobile-overview':()=>toggleOverview(),
 $('mobile-quality').onclick=()=>{const next=quality==='economy'?'balanced':quality==='balanced'?'high':'economy';applyQuality(next);$<HTMLSelectElement>('quality-select').value=next;$('mobile-quality').textContent=`Графика: ${QUALITY[next].label.toLowerCase()}`;};
 if(touchMode){applyQuality('economy');$<HTMLSelectElement>('quality-select').value='economy';$('overview-label').querySelector('small')!.textContent='Потяни планету для вращения · Два пальца — масштаб · Меню — назад';}
 let bellSoundAt=-3;
-let audio:AudioContext|undefined,audioOn=false,audioTimer:ReturnType<typeof setInterval>|undefined;
+let soundChosen=false;
+let audio:AudioContext|undefined,audioOn=false;
 const music=new MusicPlayer(new Audio(),MUSIC_TRACKS,import.meta.env.BASE_URL,
  track=>{$('music-current').textContent=track.title;},
  ()=>{$('music-current').textContent='Трек не загрузился. Попробуй следующий или включи звук снова.';});
@@ -281,6 +282,7 @@ for(const track of MUSIC_TRACKS){
  link.textContent=track.title;link.target='_blank';link.rel='noopener noreferrer';item.append(link);$('music-credits').append(item);
 }
 function toggleSound(){
+ soundChosen=true;
  audioOn=!audioOn;music.setEnabled(audioOn);
  $('sound').style.background=audioOn?'#738568':'#24363555';
  for(const id of ['sound','music-toggle']){
@@ -288,22 +290,12 @@ function toggleSound(){
   $(id).setAttribute('aria-pressed',String(audioOn));
  }
  $('music-toggle').textContent=audioOn?'♫ Звук включён':'♫ Включить звук';
- if(audioTimer){clearInterval(audioTimer);audioTimer=undefined;}
  if(!audioOn)return;
  try{
   if(!audio)audio=new AudioContext();
-  void audio.resume().catch(()=>toast('Звуки природы недоступны в этом браузере.'));
-  const chirp=()=>{
-   if(!audio||!audioOn||document.hidden||audio.state!=='running')return;
-   const o=audio.createOscillator(),g=audio.createGain();o.type='sine';
-   o.frequency.setValueAtTime(1600+Math.random()*800,audio.currentTime);
-   o.frequency.exponentialRampToValueAtTime(2600,audio.currentTime+.1);
-   g.gain.setValueAtTime(0,audio.currentTime);g.gain.linearRampToValueAtTime(.012,audio.currentTime+.025);
-   g.gain.exponentialRampToValueAtTime(.0001,audio.currentTime+.23);
-   o.connect(g).connect(audio.destination);o.start();o.stop(audio.currentTime+.25);
-  };
-  chirp();audioTimer=setInterval(chirp,2400);
- }catch{toast('Звуки природы недоступны в этом браузере.');}
+  void audio.resume().catch(()=>toast('Звуковые эффекты недоступны в этом браузере.'));
+
+ }catch{toast('Звуковые эффекты недоступны в этом браузере.');}
 }
 $('sound').onclick=toggleSound;
 $('music-toggle').onclick=toggleSound;
