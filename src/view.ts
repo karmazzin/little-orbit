@@ -79,7 +79,7 @@ function house(parent:T.Object3D,n:T.Vector3,color:number,angle:number){
 }
 export function buildWorld(scene:T.Scene){
  seed=21874;
- const obstacles:Obstacle[]=[];
+ const obstacles:Obstacle[]=[];const soundTrees:T.Vector3[]=[];
  const surface=new T.IcosahedronGeometry(1,72);
  const pos=surface.getAttribute('position');const colors=new Float32Array(pos.count*3);const n=new T.Vector3(),c=new T.Color();
  for(let i=0;i<pos.count;i++){n.fromBufferAttribute(pos,i).normalize();pos.setXYZ(i,n.x*sample(n).height,n.y*sample(n).height,n.z*sample(n).height);}
@@ -104,7 +104,7 @@ export function buildWorld(scene:T.Scene){
  const water=new T.Mesh(waterGeo,waterMat);water.receiveShadow=true;
  // VSM submits receivers too; translucent water must not become an opaque caster.
  water.customDepthMaterial=new T.MeshDepthMaterial({depthWrite:false,colorWrite:false});scene.add(water);
- const statics=new T.Group();const adventures=buildAdventures(scene,statics);obstacles.push(...adventures.obstacles);const landmarks=buildLandmarks(statics);obstacles.push(...landmarks.obstacles);const night=createNight(scene);const camp=createCamp(scene);obstacles.push(camp.obstacle);
+ const statics=new T.Group();const adventures=buildAdventures(scene,statics);obstacles.push(...adventures.obstacles);const landmarks=buildLandmarks(statics);obstacles.push(...landmarks.obstacles);soundTrees.push(...landmarks.soundTrees);const night=createNight(scene);const camp=createCamp(scene);obstacles.push(camp.obstacle);
  for(let i=0;i<600;i++){
   const n=i<250?normalAt((random()-.5)*105,(random()-.5)*105):new T.Vector3(random()-.5,random()-.5,random()-.5).normalize();
   const s=sample(n),{x,z}=coordinates(n);
@@ -112,7 +112,7 @@ export function buildWorld(scene:T.Scene){
   if(s.waterDepth>0||s.bridge||s.path||s.height<WATER_LEVEL+.25)continue;
   if(n.y>.5&&(RESIDENTS.some(r=>Math.hypot(r.x-x,r.z-z)<5)||LETTERS.some(l=>Math.hypot(l.x-x,l.z-z)<3)||Math.hypot(x+4,z-4)<5||Math.hypot(x+7,z+14)<6||Math.hypot(x-29,z-8)<6))continue;
   const scale=.8+random()*.8;
-  if(i%5){tree(statics,n,scale,random());obstacles.push({up:n.clone(),radius:.23*scale});}
+  if(i%5){tree(statics,n,scale,random());soundTrees.push(n.clone());obstacles.push({up:n.clone(),radius:.23*scale});}
   else{const g=anchor(statics,n);const rock=ball(g,0x9baba1,.6*scale,0,.25);rock.scale.set(1.3,.8,1);rock.userData.farGeometry=new T.OctahedronGeometry(.6*scale);obstacles.push({up:n.clone(),radius:.7*scale});}
  }
  for(const [x,z,col,rot] of [[-7,-14,0xba7555,Math.PI],[29,8,0x788e95,1.2],[-24,10,0xb29769,-.5],[6,-50,0xbb826c,.3]] as number[][]){const up=normalAt(x,z),home=house(statics,up,col,rot);statics.updateMatrixWorld(true);const panes:T.Mesh[]=[];home.traverse(o=>{if(o instanceof T.Mesh&&o.name==='night-window')panes.push(o);});for(const pane of panes)night.addWindow(pane,up);obstacles.push({up:normalAt(x,z),radius:2.8});}
@@ -161,5 +161,5 @@ export function buildWorld(scene:T.Scene){
  }
  updateClouds(0);scene.add(clouds);
  const starGeo=new T.BufferGeometry(),starPos=[];for(let i=0;i<1200;i++){const n=new T.Vector3(random()-.5,random()-.5,random()-.5).normalize().multiplyScalar(450+random()*250);starPos.push(n.x,n.y,n.z);}starGeo.setAttribute('position',new T.Float32BufferAttribute(starPos,3));const stars=new T.Points(starGeo,new T.PointsMaterial({color:0xd7e9ff,size:1.8,sizeAttenuation:true,transparent:true,opacity:.7,fog:false,depthWrite:false}));scene.add(stars);
- return {adventures,landmarks,night,camp,decor,obstacles,ground,water,clouds,residents,letters,waveTime,stars,cloudMaterial:cloudMat,updateClouds};
+ return {adventures,landmarks,night,camp,decor,obstacles,soundTrees,ground,water,clouds,residents,letters,waveTime,stars,cloudMaterial:cloudMat,updateClouds};
 }

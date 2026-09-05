@@ -21,11 +21,11 @@ export function restoreExploration(raw:string|null):Exploration{
 export function atObservatoryNight(seconds:number){return solarState(seconds).sunDirection.dot(LANDMARKS[2].up)<-.12;}
 export const ADA_OBSERVATORY_UP=normalAt(42,49);
 export function buildLandmarks(parent:T.Group){
- const obstacles:Obstacle[]=[];const materials=new Map<number,T.MeshStandardMaterial>();
+ const obstacles:Obstacle[]=[];const soundTrees:T.Vector3[]=[];const materials=new Map<number,T.MeshStandardMaterial>();
  function add(root:T.Group,geometry:T.BufferGeometry,color:number,x=0,y=0,z=0){let material=materials.get(color);if(!material){material=new T.MeshStandardMaterial({color,roughness:.92,flatShading:true});materials.set(color,material);}const mesh=new T.Mesh(geometry,material);mesh.position.set(x,y,z);root.add(mesh);return mesh;}
  const places=LANDMARKS.map(place=>{
   const root=new T.Group();root.name=place.name;root.position.copy(place.up).multiplyScalar(sample(place.up).height);root.quaternion.copy(surfaceOrientation(place.up));parent.add(root);
-  const solid=(x:number,z:number,radius:number)=>{root.updateMatrixWorld(true);const up=root.localToWorld(new T.Vector3(x,0,z)).normalize();obstacles.push({up,radius});};
+  const solid=(x:number,z:number,radius:number)=>{root.updateMatrixWorld(true);const up=root.localToWorld(new T.Vector3(x,0,z)).normalize();obstacles.push({up,radius});return up;};
   const box=(c:number,w:number,h:number,d:number,x:number,y:number,z:number)=>add(root,new T.BoxGeometry(w,h,d),c,x,y,z);
   if(place.id==='arch'){
    for(const x of [-2.5,2.5]){for(let i=0;i<3;i++){const rock=box(i%2?0x8c9998:0x9ea8a0,1.4,1.3,1.7,x,i*1.15+.6,0);rock.rotation.y=i*.13;}solid(x,0,.95);}
@@ -34,7 +34,7 @@ export function buildLandmarks(parent:T.Group){
   }else if(place.id==='grove'){
    for(let i=0;i<9;i++){const a=i/9*Math.PI*2,x=Math.cos(a)*(4+i%2),z=Math.sin(a)*(4+i%2);
     add(root,new T.CylinderGeometry(.17,.24,2.4,6),0x735244,x,1.2,z);
-    const crown=add(root,new T.IcosahedronGeometry(1.55,1),[0xc38756,0xb26549,0xd9ab68][i%3],x,3.1,z);crown.scale.set(1,1.2,1);solid(x,z,.35);
+    const crown=add(root,new T.IcosahedronGeometry(1.55,1),[0xc38756,0xb26549,0xd9ab68][i%3],x,3.1,z);crown.scale.set(1,1.2,1);soundTrees.push(solid(x,z,.35));
    }
    box(0x8b7152,1,.5,.7,0,.25,0);box(0xe0c894,.7,.06,.45,0,.55,0).rotation.x=.15;solid(0,0,.55);
   }else{
@@ -52,7 +52,7 @@ export function buildLandmarks(parent:T.Group){
   root.updateMatrixWorld(true);const inspectUp=plaque.getWorldPosition(new T.Vector3()).normalize();
   return {...place,inspectUp};
  });
- return {places,obstacles};
+ return {places,obstacles,soundTrees};
 }
 
 export function canRelocateResident(source:T.Vector3,target:T.Vector3,player:T.Vector3,camera:T.Camera){

@@ -1,0 +1,189 @@
+[
+  {
+    "id": "river",
+    "file": "river.mp3",
+    "author": "kurt",
+    "source": "https://opengameart.org/content/stream-sounds",
+    "license": "CC BY 3.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+    "changes": "Excerpt 2\u201330 seconds; 85 Hz high-pass and 5.5 kHz low-pass; wrap-around 2-second crossfade. Converted to 44.1 kHz mono 96 kbps MP3; peak normalized.",
+    "loop": true,
+    "originalFile": "stream-waterfall.zip / stream-waterfall/stream1.ogg"
+  },
+  {
+    "id": "crickets",
+    "file": "crickets.mp3",
+    "author": "dklon",
+    "source": "https://opengameart.org/content/crickets",
+    "license": "CC BY 3.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+    "changes": "Excerpt 0.6\u201317.6 seconds; 1.2 kHz high-pass; wrap-around 2-second crossfade. Converted to 44.1 kHz mono 96 kbps MP3; peak normalized.",
+    "loop": true,
+    "originalFile": "crickets_0.mp3"
+  },
+  {
+    "id": "bell",
+    "file": "bell.mp3",
+    "author": "laleksic",
+    "source": "https://opengameart.org/node/143670",
+    "license": "CC0 1.0",
+    "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "changes": "100 Hz high-pass; short edge fades. Converted to 44.1 kHz mono 96 kbps MP3; peak normalized.",
+    "loop": false,
+    "originalFile": "sounds_8.zip / bell.wav"
+  },
+  {
+    "id": "bird-1",
+    "file": "bird-1.mp3",
+    "author": "Thimras",
+    "source": "https://opengameart.org/content/park-ambiences",
+    "license": "CC0 1.0",
+    "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "changes": "1.25-second call excerpt starting at 18.65s; 1.8\u20138 kHz band-pass; spectral noise reduction; 90 ms onset and 200 ms tail fades. Converted to 44.1 kHz mono 96 kbps MP3; peak normalized.",
+    "loop": false,
+    "originalFile": "park_ambience_birds.wav"
+  },
+  {
+    "id": "bird-2",
+    "file": "bird-2.mp3",
+    "author": "Thimras",
+    "source": "https://opengameart.org/content/park-ambiences",
+    "license": "CC0 1.0",
+    "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "changes": "1.25-second call excerpt starting at 20.0s; 1.8\u20138 kHz band-pass; spectral noise reduction; 90 ms onset and 200 ms tail fades. Converted to 44.1 kHz mono 96 kbps MP3; peak normalized.",
+    "loop": false,
+    "originalFile": "park_ambience_birds.wav"
+  },
+  {
+    "id": "bird-3",
+    "file": "bird-3.mp3",
+    "author": "Thimras",
+    "source": "https://opengameart.org/content/park-ambiences",
+    "license": "CC0 1.0",
+    "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "changes": "1.25-second call excerpt starting at 27.45s; 1.8\u20138 kHz band-pass; spectral noise reduction; 90 ms onset and 200 ms tail fades. Converted to 44.1 kHz mono 96 kbps MP3; peak normalized.",
+    "loop": false,
+    "originalFile": "park_ambience_birds.wav"
+  },
+  {
+    "id": "step-grass-1",
+    "file": "step-grass-1.mp3",
+    "author": "swuing; mastering/variations by congusbongus",
+    "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+    "license": "CC BY 3.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+    "changes": "Selected supplied recorded footstep variation; 65 Hz high-pass; short edge fades. Original: https://freesound.org/people/swuing/sounds/38874/ Converted to 44.1 kHz mono 96 kbps MP3; peak normalized.",
+    "loop": false,
+    "originalFile": "footsteps_0.zip / footsteps/grass/0.ogg"
+  },
+  {
+    "id": "step-grass-2",
+    "file": "step-grass-2.mp3",
+    "author": "swuing; mastering/variations by congusbongus",
+    "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+    "license": "CC BY 3.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+    "changes": "Selected supplied recorded footstep variation; 65 Hz high-pass; short edge fades. Original: https://freesound.org/people/swuing/sounds/38874/ Converted to 44.1 kHz mono 96 kbps MP3; peak normalized.",
+    "loop": false,
+    "originalFile": "footsteps_0.zip / footsteps/grass/1.ogg"
+  },
+  {
+    "id": "step-grass-3",
+    "file": "step-grass-3.mp3",
+    "author": "swuing; mastering/variations by congusbongus",
+    "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+    "license": "CC BY 3.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+    "changes": "Selected supplied recorded footstep variation; 65 Hz high-pass; short edge fades. Original: https://freesound.org/people/swuing/sounds/38874/ Converted to 44.1 kHz mono 96 kbps MP3; peak normalized.",
+    "loop": false,
+    "originalFile": "footsteps_0.zip / footsteps/grass/2.ogg"
+  },
+  {
+    "id": "step-stone-1",
+    "file": "step-stone-1.mp3",
+    "author": "swuing; mastering/variations by congusbongus",
+    "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+    "license": "CC BY 3.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+    "changes": "Selected supplied recorded footstep variation; 65 Hz high-pass; short edge fades. Original: https://freesound.org/people/swuing/sounds/38873/ Converted to 44.1 kHz mono 96 kbps MP3; peak normalized.",
+    "loop": false,
+    "originalFile": "footsteps_0.zip / footsteps/boots/0.ogg"
+  },
+  {
+    "id": "step-stone-2",
+    "file": "step-stone-2.mp3",
+    "author": "swuing; mastering/variations by congusbongus",
+    "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+    "license": "CC BY 3.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+    "changes": "Selected supplied recorded footstep variation; 65 Hz high-pass; short edge fades. Original: https://freesound.org/people/swuing/sounds/38873/ Converted to 44.1 kHz mono 96 kbps MP3; peak normalized.",
+    "loop": false,
+    "originalFile": "footsteps_0.zip / footsteps/boots/1.ogg"
+  },
+  {
+    "id": "step-stone-3",
+    "file": "step-stone-3.mp3",
+    "author": "swuing; mastering/variations by congusbongus",
+    "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+    "license": "CC BY 3.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+    "changes": "Selected supplied recorded footstep variation; 65 Hz high-pass; short edge fades. Original: https://freesound.org/people/swuing/sounds/38873/ Converted to 44.1 kHz mono 96 kbps MP3; peak normalized.",
+    "loop": false,
+    "originalFile": "footsteps_0.zip / footsteps/boots/2.ogg"
+  },
+  {
+    "id": "step-wood-1",
+    "file": "step-wood-1.mp3",
+    "author": "swuing; mastering/variations by congusbongus",
+    "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+    "license": "CC BY 3.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+    "changes": "Selected supplied recorded footstep variation; 65 Hz high-pass; short edge fades. Original: https://freesound.org/people/swuing/sounds/38876/ Converted to 44.1 kHz mono 96 kbps MP3; peak normalized.",
+    "loop": false,
+    "originalFile": "footsteps_0.zip / footsteps/wood/0.ogg"
+  },
+  {
+    "id": "step-wood-2",
+    "file": "step-wood-2.mp3",
+    "author": "swuing; mastering/variations by congusbongus",
+    "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+    "license": "CC BY 3.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+    "changes": "Selected supplied recorded footstep variation; 65 Hz high-pass; short edge fades. Original: https://freesound.org/people/swuing/sounds/38876/ Converted to 44.1 kHz mono 96 kbps MP3; peak normalized.",
+    "loop": false,
+    "originalFile": "footsteps_0.zip / footsteps/wood/1.ogg"
+  },
+  {
+    "id": "step-wood-3",
+    "file": "step-wood-3.mp3",
+    "author": "swuing; mastering/variations by congusbongus",
+    "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+    "license": "CC BY 3.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+    "changes": "Selected supplied recorded footstep variation; 65 Hz high-pass; short edge fades. Original: https://freesound.org/people/swuing/sounds/38876/ Converted to 44.1 kHz mono 96 kbps MP3; peak normalized.",
+    "loop": false,
+    "originalFile": "footsteps_0.zip / footsteps/wood/2.ogg"
+  },
+  {
+    "id": "wind",
+    "file": "wind.mp3",
+    "author": "Thimras",
+    "source": "https://opengameart.org/content/park-ambiences",
+    "license": "CC0 1.0",
+    "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "changes": "Excerpt 20\u201348 seconds from open-field wind recording; 140 Hz\u20134.5 kHz band-pass; wrap-around 2-second crossfade; converted to 44.1 kHz mono 96 kbps MP3; peak normalized.",
+    "loop": true,
+    "originalFile": "park_ambience_wind.wav"
+  },
+  {
+    "id": "leaves",
+    "file": "leaves.mp3",
+    "author": "Thimras",
+    "source": "https://opengameart.org/content/park-ambiences",
+    "license": "CC0 1.0",
+    "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "changes": "Excerpt 50\u201372 seconds from open-field wind recording; 500 Hz\u20136.5 kHz band-pass; wrap-around 2-second crossfade; converted to 44.1 kHz mono 96 kbps MP3; peak normalized. Used as wind rustle layer around foliage; not a separate close-mic leaf recording.",
+    "loop": true,
+    "originalFile": "park_ambience_wind.wav"
+  }
+]

@@ -1,3 +1,5 @@
+import {Soundscape} from './soundscape.ts';
+import {WorldAudio} from './world-audio.ts';
 import {MusicPlayer,MUSIC_TRACKS} from './music.ts';
 import {createTouchControls} from './touch.ts';
 import {createAdventureUI} from './adventure-ui.ts';
@@ -269,9 +271,12 @@ $('mobile-menu').onclick=()=>{const open=$('mobile-actions').hidden;releaseMouse
 for(const [id,action] of Object.entries({'mobile-overview':()=>toggleOverview(),'mobile-system':openSystemMap,'mobile-journal':()=>openDialog('journal'),'mobile-postcard':()=>{if(!overview)drawPostcard();},'mobile-help':()=>openDialog('help')}))$(id).onclick=()=>{closeMobileMenu();action();};
 $('mobile-quality').onclick=()=>{const next=quality==='economy'?'balanced':quality==='balanced'?'high':'economy';applyQuality(next);$<HTMLSelectElement>('quality-select').value=next;$('mobile-quality').textContent=`Графика: ${QUALITY[next].label.toLowerCase()}`;};
 if(touchMode){applyQuality('economy');$<HTMLSelectElement>('quality-select').value='economy';$('overview-label').querySelector('small')!.textContent='Потяни планету для вращения · Два пальца — масштаб · Меню — назад';}
-let bellSoundAt=-3;
 let soundChosen=false;
-let audio:AudioContext|undefined,audioOn=false;
+let audioOn=false;
+const soundscape=new Soundscape(world.soundTrees);
+const worldAudio=new WorldAudio(import.meta.env.BASE_URL,()=>{$('sound-status').textContent='Часть звуков не загрузилась. Выключи и включи звук, чтобы повторить.';});
+const hiddenBell=world.adventures.points.find(p=>p.id==='bell')!.up;
+const gardenBell=normalAt(23,5);
 const music=new MusicPlayer(new Audio(),MUSIC_TRACKS,import.meta.env.BASE_URL,
  track=>{$('music-current').textContent=track.title;},
  ()=>{$('music-current').textContent='Трек не загрузился. Попробуй следующий или включи звук снова.';});
@@ -283,26 +288,24 @@ for(const track of MUSIC_TRACKS){
 }
 function toggleSound(){
  soundChosen=true;
- audioOn=!audioOn;music.setEnabled(audioOn);
+ audioOn=!audioOn;music.setEnabled(audioOn);worldAudio.setEnabled(audioOn);
+ if(audioOn)$('sound-status').textContent='';
  $('sound').style.background=audioOn?'#738568':'#24363555';
  for(const id of ['sound','music-toggle']){
   $(id).setAttribute('aria-label',audioOn?'Выключить музыку и звуки':'Включить музыку и звуки');
   $(id).setAttribute('aria-pressed',String(audioOn));
  }
  $('music-toggle').textContent=audioOn?'♫ Звук включён':'♫ Включить звук';
- if(!audioOn)return;
- try{
-  if(!audio)audio=new AudioContext();
-  void audio.resume().catch(()=>toast('Звуковые эффекты недоступны в этом браузере.'));
 
- }catch{toast('Звуковые эффекты недоступны в этом браузере.');}
 }
 $('sound').onclick=toggleSound;
 $('music-toggle').onclick=toggleSound;
 $('music-next').onclick=()=>music.next();
 $('music-volume').oninput=()=>music.setVolume(Number($<HTMLInputElement>('music-volume').value)/100);
-music.setHidden(document.hidden);
-document.addEventListener('visibilitychange',()=>music.setHidden(document.hidden));
+const updateMixVolumes=()=>worldAudio.setVolumes(Number($<HTMLInputElement>('ambience-volume').value)/100,Number($<HTMLInputElement>('effects-volume').value)/100);
+$('ambience-volume').oninput=updateMixVolumes;$('effects-volume').oninput=updateMixVolumes;
+music.setHidden(document.hidden);worldAudio.setHidden(document.hidden);
+document.addEventListener('visibilitychange',()=>{music.setHidden(document.hidden);worldAudio.setHidden(document.hidden);});
 
 const facing=player.forward.clone(),right=new T.Vector3(),matrix=new T.Matrix4(),desiredCamera=new T.Vector3(),desiredUp=new T.Vector3(),look=new T.Vector3(),cameraLook=new T.Vector3(-25,0,0);
 function pose(object:T.Object3D,up:T.Vector3,heading:T.Vector3,height:number){right.crossVectors(heading,up).normalize();matrix.makeBasis(right,up,heading.clone().negate());object.quaternion.setFromRotationMatrix(matrix);object.position.copy(up).multiplyScalar(height);}
@@ -361,10 +364,13 @@ renderer.setAnimationLoop((ms:number)=>{
   r.model.animate(time+r.phase,walking);
  }
  world.adventures.update(adventureUI.state,solarSeconds,time,player.up,adventureUI.party());
- if(!paused&&audioOn&&audio&&time-bellSoundAt>2&&adventureUI.state.bell==='searching'&&adventureUI.state.tracks===2){
-  const d=world.adventures.points.find(p=>p.id==='bell')!.up.distanceTo(player.up)*RADIUS;
-  if(d<16){bellSoundAt=time;const gain=audio.createGain(),o=audio.createOscillator();o.frequency.value=1046;o.type='sine';gain.gain.setValueAtTime(.035*(1-d/16),audio.currentTime);gain.gain.exponentialRampToValueAtTime(.0001,audio.currentTime+1.3);o.connect(gain).connect(audio.destination);o.start();o.stop(audio.currentTime+1.3);o.onended=()=>{o.disconnect();gain.disconnect();};}
- }
+ music.setDucked($<HTMLDialogElement>('conversation').open);
+ music.update(frameMs/1000);
+ worldAudio.setActive(started&&!overview);
+ worldAudio.update(soundscape.update(dt,{up:player.up,forward:player.forward,sun:solar.state.sunDirection,
+  active:audioOn&&started&&!overview,walking:!paused,moving:player.moving,grounded:player.grounded,
+  bell:adventureUI.state.bell==='complete'?gardenBell:adventureUI.state.bell==='searching'&&adventureUI.state.tracks===2?hiddenBell:null,
+  bellInterval:adventureUI.state.bell==='complete'?35:5}));
  for(const l of world.letters){l.envelope.position.y=.95+Math.sin(time*2+l.x)*.12;l.envelope.rotation.y=time*.6;l.ring.scale.setScalar(1+Math.sin(time*2)*.08);}
  world.waveTime.value=time;world.water.material.opacity=.87+Math.sin(time*.6)*.025;if((cloudTick+=dt)>=1/20){world.updateClouds(time,solar.state.sunDirection);cloudTick=0;}
  if(trackingPlanet&&!paused){const aim=planetAim(observedPlanet,solarSeconds,player.up,player.forward);
