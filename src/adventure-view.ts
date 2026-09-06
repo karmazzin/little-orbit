@@ -1,6 +1,6 @@
 import * as T from 'three';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
-import {ADVENTURE_POINTS,pointById,travelerScheduled,type Adventures} from './adventures.ts';
+import {ADVENTURE_POINTS,pointById,type Adventures} from './adventures.ts';
 import {sample,RADIUS} from './terrain.ts';
 import type {Obstacle} from './simulation.ts';
 const Y=new T.Vector3(0,1,0);
@@ -17,7 +17,7 @@ function compact(root:T.Group){
  const old:T.BufferGeometry[]=[];root.traverse(o=>{if(o instanceof T.Mesh)old.push(o.geometry);});root.clear();old.forEach(g=>g.dispose());const geometry=mergeGeometries(geos);geos.forEach(g=>g.dispose());if(geometry){const m=new T.Mesh(geometry,mat);m.castShadow=true;m.receiveShadow=true;root.add(m);}
 }
 export function buildAdventures(scene:T.Scene,statics:T.Group){
- const obstacles:Obstacle[]=[],points=ADVENTURE_POINTS.map(p=>({...p,inspectUp:p.up.clone()}));
+ const obstacles:Obstacle[]=[],points=ADVENTURE_POINTS.map(p=>({...p,inspectUp:(p.id==='festival'?p.up.clone().add(new T.Vector3(0,0,-.055)).normalize():p.up.clone())}));
  function anchor(parent:T.Object3D,id:string){const p=pointById(id),root=new T.Group();root.position.copy(p.up).multiplyScalar(sample(p.up).height);root.quaternion.setFromUnitVectors(Y,p.up);parent.add(root);return root;}
  function block(root:T.Group,x:number,z:number,radius:number){root.updateMatrixWorld(true);obstacles.push({up:root.localToWorld(new T.Vector3(x,0,z)).normalize(),radius});}
  const crater=anchor(statics,'meteor');
@@ -46,33 +46,23 @@ export function buildAdventures(scene:T.Scene,statics:T.Group){
  const bell=anchor(scene,'bell');part(bell,new T.CylinderGeometry(.12,.29,.4,8),0xd7b35f,0,.55);rock(bell,0x936e39,.09,0,.31);compact(bell);
  const bush=anchor(statics,'bell');for(const x of [-.7,.7])rock(bush,0x658257,.6,x,.3,.4);
  const pulse=anchor(scene,'bell');const ring=new T.Mesh(new T.RingGeometry(.36,.4,24),new T.MeshBasicMaterial({color:0xf1d899,transparent:true,opacity:.6,side:T.DoubleSide,depthWrite:false}));ring.rotation.x=-Math.PI/2;ring.position.y=.18;pulse.add(ring);
- const table=anchor(statics,'festival');
- box(table,0xac8053,2.4,.15,.85,0,.85,1.6);for(const x of [-.9,.9])box(table,0x806143,.13,.85,.6,x,.4,1.6);
- block(table,0,1.6,1.15);
  const festival=anchor(scene,'festival');
- for(let i=0;i<5;i++){const x=-2+i;box(festival,0xe5c881,.13,2.6,.13,x,1.3,2.5);rock(festival,0xffd995,.19,x,2.4,2.5);}
- for(const [x,z,color] of [[-2,0,0xab796d],[2,0,0x789994],[1,3.3,0xa79b70]]){
-  part(festival,new T.CylinderGeometry(.2,.33,.8,7),color,x,.8,z);rock(festival,0xe5c19b,.25,x,1.5,z);for(const dx of [-.32,.32])box(festival,color,.15,.55,.18,x+dx,.9,z);for(const dx of [-.13,.13])box(festival,0x465556,.17,.45,.22,x+dx,.23,z);
- }
- compact(festival);festival.visible=false;
- const lights=new T.Points(new T.BufferGeometry().setFromPoints(Array.from({length:5},(_,i)=>new T.Vector3(-2+i,2.4,2.5))),new T.PointsMaterial({color:0xffd6a0,size:.38,sizeAttenuation:true,depthWrite:false}));festival.add(lights);
+ for(let i=0;i<5;i++){const x=-4+i*2;box(festival,0x806143,.13,2.6,.13,x,1.3,5.4);rock(festival,0xffd995,.19,x,2.4,5.4);}
+ compact(festival);
+ const lights=new T.Points(new T.BufferGeometry().setFromPoints(Array.from({length:5},(_,i)=>new T.Vector3(-4+i*2,2.4,5.4))),new T.PointsMaterial({color:0xffd6a0,size:.38,sizeAttenuation:true,depthWrite:false,transparent:true}));festival.add(lights);
  const cart=anchor(statics,'traveler');
  box(cart,0xa4805c,1.8,.55,1.05,1.7,.6,.6);for(const x of [1,2.4])for(const z of [0,1.2])part(cart,new T.CylinderGeometry(.35,.35,.12,10),0x62503b,x,.35,z).rotation.x=Math.PI/2;
  box(cart,0xd9c9a0,1.7,.1,1.3,1.7,1.9,.6);for(const x of [1,2.4])box(cart,0x806348,.07,1.3,.07,x,1.2,.6);
+ box(cart,0xc4b58d,1.7,1.18,.06,1.7,1.25,1.2);box(cart,0xc4b58d,.06,1.18,1.15,2.5,1.25,.6);
  block(cart,1.7,.6,.85);
- const traveler=anchor(scene,'traveler');
- part(traveler,new T.CylinderGeometry(.24,.31,.8,8),0x7e839d,0,.85);rock(traveler,0xe5bd97,.26,0,1.52);part(traveler,new T.CylinderGeometry(.34,.36,.09,9),0xb79c70,0,1.8);for(const x of [-.14,.14])box(traveler,0x4b5360,.19,.45,.25,x,.23);
- for(const x of [-.32,.32])box(traveler,0x7e839d,.16,.55,.2,x,.93);
- box(traveler,0xd9c695,.38,.29,.1,0,1.1,-.3);compact(traveler);traveler.visible=false;
- // Cart remains a solid landmark even outside the storyteller's visiting hours.
-
- return {points,obstacles,traveler,festival,update(s:Adventures,seconds:number,time:number,playerUp:T.Vector3,party:boolean){
+ const cartLamp=anchor(scene,'traveler'),cartGlow=new T.MeshBasicMaterial({color:0x706750});const glass=new T.Mesh(new T.BoxGeometry(.14,.23,.14),cartGlow);glass.position.set(.8,1.6,.1);cartLamp.add(glass);
+ const traveler=new T.Group();traveler.visible=false; // Legacy handle; Noah now belongs to the resident simulation.
+ return {points,obstacles,traveler,festival,update(s:Adventures,seconds:number,time:number,playerUp:T.Vector3,party:boolean,cartOccupied=false){
   lid.children[0].position.x=s.cave?.65:0;
   core.visible=s.meteor==='new'||s.meteor==='searching';bottles.forEach(b=>b.root.visible=!s.bottles.includes(b.id));
   bell.visible=s.bell!=='found'&&s.bell!=='complete';pulse.visible=s.bell==='searching'&&s.tracks===2;
   ring.scale.setScalar(1+(time%2)*.7);(ring.material as T.MeshBasicMaterial).opacity=(1-time%2/2)*.7;
-  const near=pointById('traveler').up.distanceTo(playerUp)*RADIUS<16;
-  traveler.visible=travelerScheduled(seconds)||(traveler.visible&&near);
-  festival.visible=party;lights.material.opacity=.75+Math.sin(time*1.3)*.2;
+  lights.material.opacity=party?.85:.18;cartGlow.color.set(cartOccupied?0xffcf87:0x706750);
+
  }};
 }

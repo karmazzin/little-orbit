@@ -20,3 +20,8 @@ test('changing shadow quality releases both the depth and filtered render target
  let disposed=0;map.addEventListener('dispose',()=>disposed++);pass.addEventListener('dispose',()=>disposed++);
  resizeShadow(sun,1024);assert.equal(disposed,2);assert.equal(sun.shadow.map,null);assert.equal(sun.shadow.mapPass,null);assert.equal(sun.shadow.mapSize.x,1024);
 });
+
+test('shadow projection includes the mountain envelope',()=>{
+ const {sky}=setup();
+ for(const limit of [sky.sun.shadow.camera.right,-sky.sun.shadow.camera.left,sky.sun.shadow.camera.top,-sky.sun.shadow.camera.bottom])assert.ok(limit>=86,'mountain casts a clipped shadow');
+});

@@ -60,3 +60,27 @@ test('water and leaves are local, overview is silent, and bell needs a nearby ac
  assert.ok(bells>0&&bells<4);
  for(let i=0;i<100;i++)assert.ok(model.update(.1,{...f,bell:normalAt(50,0)}).shots.every(s=>s.id!=='bell'));
 });
+
+test('swimming never produces footsteps even when the surface controller is grounded',()=>{
+ const model=new Soundscape([],()=>.5),f=frame();
+ for(let i=0;i<45;i++){
+  const mix=model.update(.05,{...f,up:normalAt(12,27+i*.08),moving:true,grounded:true});
+  assert.ok(mix.shots.every(s=>!s.id.startsWith('step-')));
+ }
+});
+
+test('remote river mouths have local water ambience',async()=>{
+ const {BASINS}=await import('../src/hydrology.ts');
+ const model=new Soundscape([],()=>.5),f=frame();
+ const sea=BASINS.find(b=>b.name==='Лазурное море')!;
+ const {Quaternion}=await import('three');
+ const shore=normalAt(sea.radius,0).applyQuaternion(new Quaternion().setFromUnitVectors(new Vector3(0,1,0),sea.up));
+ assert.ok(model.update(.1,{...f,up:shore}).loops.find(s=>s.id==='river')!.gain>.08);
+});
+
+test('fire ambience is local and disappears when the fire is out or audio is inactive',()=>{
+ const model=new Soundscape([],()=>.5),f=frame(),fire=normalAt(-10,-4);
+ const sound=(up:Vector3,lit=true)=>model.update(.1,{...f,up,fire:lit?fire:null}).loops.find(s=>s.id==='fire')!;
+ assert.ok(sound(fire).gain>.9);assert.equal(sound(fire.clone().negate()).gain,0);assert.equal(sound(fire,false).gain,0);
+ assert.deepEqual(model.update(.1,{...f,up:fire,fire,active:false}),{loops:[],shots:[]});
+});

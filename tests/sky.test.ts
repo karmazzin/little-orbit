@@ -27,3 +27,11 @@ test('local dawn and sunset reverse on opposite hemispheres',async()=>{
  assert.equal(localPhase(DAY_SECONDS*.75,up),'Закат');
  assert.equal(localPhase(DAY_SECONDS*.75,up.clone().negate()),'Рассвет');
 });
+test('local clock and time presets agree with daylight away from the starting valley',async()=>{
+ const {localHours,secondsAtLocalHour}=await import('../src/sky.ts');
+ for(const up of [new Vector3(0,1,0),new Vector3(1,0,0),new Vector3(0,-1,0),new Vector3(-1,0,0)]){
+  assert.ok(secondsAtLocalHour(0,0,up)>=0);
+  const noon=secondsAtLocalHour(4321,12,up);assert.ok(Math.abs(localHours(noon,up)-12)<1e-8);assert.ok(solarState(noon).sunDirection.dot(up)>.99);
+  const night=secondsAtLocalHour(4321,0,up);assert.ok(localHours(night,up)<1e-8);assert.ok(solarState(night).sunDirection.dot(up)<-.99);
+ }
+});

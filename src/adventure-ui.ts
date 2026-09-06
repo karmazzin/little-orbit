@@ -1,23 +1,10 @@
-import {ADVENTURE_POINTS,adventureHint,restoreAdventures,reduceAdventures,festivalAvailable,type AdventureAction} from './adventures.ts';
-import {BOTTLE_LETTERS,TRAVELER_TALES,CAVE_INTRO,CAVE_END,METEOR_END,BELL_END} from './adventure-text.ts';
-type Host={dialog:(speaker:string,text:string)=>void;choice:(text:string,action:()=>void)=>void;near:(id:string)=>boolean;residentNear:(id:string)=>boolean;seconds:()=>number;completed:()=>number;travelerPresent:()=>boolean;toast:(text:string)=>void};
+import {ADVENTURE_POINTS,restoreAdventures,reduceAdventures,festivalAvailable,type AdventureAction} from './adventures.ts';
+import {BOTTLE_LETTERS,TRAVELER_TALES,CAVE_INTRO,CAVE_END,METEOR_END,BELL_END,CAMPFIRE_TALES} from './adventure-text.ts';
+type Host={known?:(id:string)=>void;dialog:(speaker:string,text:string)=>void;choice:(text:string,action:()=>void)=>void;near:(id:string)=>boolean;residentNear:(id:string)=>boolean;seconds:()=>number;completed:()=>number;travelerPresent:()=>boolean;storytelling:()=>boolean;beginFireSeat:()=>void;leaveFireSeat:()=>void;seatedByFire:()=>boolean;toast:(text:string)=>void};
 export function createAdventureUI(h:Host){
  let state=restoreAdventures(null);try{state=restoreAdventures(localStorage.getItem('little-orbit-adventures-v1'));}catch{}
- const journal=document.createElement('section');journal.className='adventure-journal';document.getElementById('camp-journal')!.parentElement!.before(journal);
- function change(action:AdventureAction){const next=reduceAdventures(state,action);if(next!==state){state=next;try{localStorage.setItem('little-orbit-adventures-v1',JSON.stringify(state));}catch{h.toast('Истории сохранятся только до закрытия вкладки.');}render();}}
+ function change(action:AdventureAction){const next=reduceAdventures(state,action);if(next!==state){state=next;try{localStorage.setItem('little-orbit-adventures-v1',JSON.stringify(state));}catch{h.toast('Истории сохранятся только до закрытия вкладки.');}}}
  const party=()=>festivalAvailable(state,h.completed(),h.seconds());
- function render(){
-  journal.replaceChildren();const title=document.createElement('h3');title.textContent='Маленькие истории';journal.append(title);
-  function row(title:string,text:string,read?:()=>void){const el=document.createElement('article');el.className='discovery-row';const name=document.createElement('strong'),p=document.createElement('p');name.textContent=title;p.textContent=text;el.append(name,p);if(read){const b=document.createElement('button');b.textContent='Перечитать';b.onclick=read;el.append(b);}journal.append(el);}
-  row('Камень, который добрался',adventureHint(state,'meteor'),state.meteor==='complete'?()=>h.dialog('Запись Ады',METEOR_END):undefined);
-  row('Звон к ужину',adventureHint(state,'bell'),state.bell==='complete'?()=>h.dialog('Лев',BELL_END):undefined);
-  row('Пещера первого огня',state.cave?'✓ Прочитано послание первых жителей.':'За Аркой ветров, на северо-западе. Рисунки у входа подсказывают порядок знаков.',state.cave?()=>h.dialog('Первый дом',CAVE_END):undefined);
-  row('Два берега',`Письма в бутылках: ${state.bottles.length} / 3. ${state.bottles.length===3?'✓ История Томы и Нэл собрана.':'Ищи у брода, восточного берега озера и южного тростника.'}`);
-  for(const id of state.bottles){const letter=BOTTLE_LETTERS[id];row(letter.title,'Сохранённое письмо',()=>h.dialog(letter.title,letter.text));}
-  row('Вечер фонарей',state.festival?'✓ Ты побывал на празднике. Снова приходи вечером.':'После двух завершённых историй приходи вечером на поляну между луговой тропой и почтой. Время можно ускорить в меню часов.');
-  row('Тетрадь Ноя',`Рассказов: ${state.tales.length} / 3. Ной останавливается у северного домика днём через день. Повозка отмечена на карте M. Это рассказы из старых радиозаписей, а не открытые маршруты полётов.`);
-  for(const id of state.tales){const tale=TRAVELER_TALES[id];row(tale.title,'История из тетради',()=>h.dialog('Ной',tale.text));}
- }
  function meteor(){
   if(!h.residentNear('ada'))return;
   if(state.meteor==='new'){
@@ -37,13 +24,24 @@ export function createAdventureUI(h:Host){
   }else h.dialog('Лев',state.bell==='complete'?'Теперь, когда звенит, думаю: вдруг это ты идёшь. Хорошая у старой вещи новая работа.':state.tracks===0?'На северной кромке сада осталась полоска примятой травы. Я бы сам её не заметил, если бы всё утро не искал шнурок.':state.tracks===1?'К броду? Похоже на нашего зайца. Он всегда выбирает самый мокрый путь и потом сушится в моих грядках.': 'За бродом низкие кусты. Шнурок легко мог там зацепиться. Если ветер стихнет, присмотрись: латунь ловит свет.');
  }
  function cave(prefix=''){
+  h.known?.('cave');
   h.dialog('Каменная шкатулка',state.cave?CAVE_END:prefix+CAVE_INTRO+` Сейчас нажато знаков: ${state.runes} из 3.`);
-  if(!state.cave)for(const [symbol,label] of [['sun','Солнце'],['tree','Дерево'],['star','Звезда']])h.choice(label,()=>{if(!h.near('cave'))return;change({type:'rune',symbol});cave(state.runes===0?'Камень отзывается глухим стуком. Знаки вернулись на место. Попробуй прочитать надпись как историю, по порядку. ':'Знак тихо подался внутрь. ');});
+  if(!state.cave)for(const [symbol,label] of [['sun','Ореол'],['tree','Дерево'],['star','Звезда']])h.choice(label,()=>{if(!h.near('cave'))return;change({type:'rune',symbol});cave(state.runes===0?'Камень отзывается глухим стуком. Знаки вернулись на место. Попробуй прочитать надпись как историю, по порядку. ':'Знак тихо подался внутрь. ');});
+ }
+ let fireTale=0;
+ function fireside(){
+  if(!h.storytelling()||!h.seatedByFire())return;
+  h.known?.('fireside');
+  const tale=CAMPFIRE_TALES[fireTale%CAMPFIRE_TALES.length];h.dialog('Ной',tale.title+'\n\n'+tale.text);
+  h.choice('Ещё одну историю у костра',()=>{if(!h.storytelling()||!h.seatedByFire())return;fireTale++;fireside();});
+  h.choice('Встать с бревна',h.leaveFireSeat);
  }
  function traveler(){
   if(!h.near('traveler')||!h.travelerPresent())return;
+  h.known?.('tales');
   h.dialog('Ной',state.tales.length?'Я всё думаю о твоём лице, когда читал прошлую запись. Бабушке понравилось бы, что её тетрадь ещё кому-то нужна. Послушаем другую?':'Не пугайся повозки: продавать ничего не стану. Я Ной. Обхожу планету и записываю то, что люди помнят. А эту тетрадь оставила бабушка — она слушала дальнее радио. Не знаю, сколько в ней правды. Зато знаю, почему она берегла эти голоса. Хочешь послушать?');
   for(const [id,tale] of Object.entries(TRAVELER_TALES))h.choice((state.tales.includes(id)?'✓ ':'')+tale.title,()=>{if(!h.near('traveler')||!h.travelerPresent())return;change({type:'tale',id});h.dialog('Ной',tale.text);h.choice('Послушать ещё',traveler);});
+  if(h.storytelling())h.choice('Подсесть к Ною у костра',()=>{if(h.storytelling()&&h.near('traveler'))h.beginFireSeat();});
  }
  function interact(id:string){
   if(!h.near(id))return;
@@ -61,10 +59,11 @@ export function createAdventureUI(h:Host){
    if(state.bell==='searching'&&state.tracks===2)h.choice('Осторожно распутать шнурок',()=>{if(!h.near(id))return;change({type:'bell-pick'});h.dialog('Колокольчик найден','Ты придерживаешь язык колокольчика пальцем. На обратном пути он всё равно иногда звенит. Верни его Льву в сад.');});
   }else if(id==='traveler')traveler();
   else if(id==='festival'){
-   if(!party()){h.dialog('Поляна фонарей','Здесь собираются, когда в долине появляются хорошие новости. Заверши хотя бы две истории и возвращайся местным вечером — от заката до ранней ночи.');return;}
-   h.dialog('Вечер фонарей',state.festival?'На столе снова чай. Кто-то подвигает скамейку: твоё место уже знают. Здесь не нужно приносить ещё одну историю, чтобы остаться.':'Гости поднимают фонари. На столе — пирог от Льва, чай Ады и записка почерком Миры: «Я всё собиралась сказать тебе спасибо отдельно. А потом оказалось, что я не одна такая. Вот мы и собрались». Соседка подвигает тебе чашку. «Они ещё подойдут, если освободятся. А ты садись, пока чай горячий».');
+   if(!party()){h.dialog('Поляна фонарей','Брёвна стоят вокруг каменного кострища. В некоторые вечера здесь собираются жители, а Ной читает старую тетрадь. После двух законченных историй долина устроит для тебя праздник — приходи от заката до ранней ночи.');return;}
+   h.known?.('festival');
+   h.dialog('Вечер фонарей',state.festival?'На столе снова чай. На бревне у костра оставлено место для тебя. Здесь не нужно приносить ещё одну историю, чтобы остаться.':'Над костром светятся фонари. Рядом с дровами — корзина с пирогом Льва, чай Ады и записка почерком Миры: «Я всё собиралась сказать тебе спасибо отдельно. А потом оказалось, что я не одна такая. Вот мы и собрались». Возле корзины стоит твоя чашка. «Они ещё подойдут, если освободятся. А ты садись, пока чай горячий».');
    if(!state.festival)h.choice('Остаться на чай',()=>{if(!h.near(id)||!party())return;change({type:'festival',seconds:h.seconds(),completed:h.completed()});h.dialog('За общим столом','Разговор уходит от твоих прогулок к завтрашней погоде, потом к пирогу, который чуть не сгорел. Никто уже не представляет тебя гостям: все знают. Уходя, ты замечаешь, что твою чашку оставили на полке вместе с остальными.');});
   }
  }
- render();return {get state(){return state;},party,interact,residentChoices(id:string){if(id==='ada')h.choice('Что случилось этой ночью?',meteor);if(id==='lev')h.choice('Почему у калитки так тихо?',bell);},available(id:string){if(id==='traveler')return h.travelerPresent();if(id.startsWith('bottle'))return !state.bottles.includes(id);if(id==='bell')return state.bell!=='found'&&state.bell!=='complete';return ADVENTURE_POINTS.some(p=>p.id===id);}};
+ return {get state(){return state;},reset(){state=restoreAdventures(null);fireTale=0;},party,interact,fireside,residentChoices(id:string){if(id==='ada')h.choice('Что случилось этой ночью?',meteor);if(id==='lev')h.choice('Почему у калитки так тихо?',bell);},available(id:string){if(id==='traveler')return h.travelerPresent();if(id.startsWith('bottle'))return !state.bottles.includes(id);if(id==='bell')return state.bell!=='found'&&state.bell!=='complete';return ADVENTURE_POINTS.some(p=>p.id===id);}};
 }

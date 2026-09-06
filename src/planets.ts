@@ -1,6 +1,8 @@
 import * as T from 'three';
+import {createAtlasPlanet} from './system-planet.ts';
 import {solarState} from './sky.ts';
 const Z=new T.Vector3(0,0,1);
+export const HOME_PLANET={name:'Хвоя',locative:'Хвое'} as const;
 export const NEIGHBORS=[
  {name:'Янтарь',color:0xd9a664,radius:1050,period:1500,phase:.8,tilt:.18,size:10},
  {name:'Лазурь',color:0x67b5d1,radius:2600,period:8300,phase:.05,tilt:-.32,size:13},
@@ -18,14 +20,13 @@ export function neighborDirection(index:number,seconds:number){
 export function neighborSkyPosition(index:number,seconds:number){return neighborDirection(index,seconds).multiplyScalar(610+index*12);}
 export function createNeighbors(scene:T.Scene){
  const bodies=NEIGHBORS.map((p,index)=>{
-  const geometry=new T.IcosahedronGeometry(p.size,2);
-  const material=new T.MeshStandardMaterial({color:p.color,roughness:1,flatShading:true,emissive:p.color,emissiveIntensity:.16,fog:false});
-  const mesh=new T.Mesh(geometry,material);mesh.name=p.name;mesh.castShadow=false;mesh.receiveShadow=false;scene.add(mesh);
-  if(index===2){const ring=new T.Mesh(new T.RingGeometry(p.size*1.4,p.size*1.9,36),new T.MeshBasicMaterial({color:0xcbbad8,side:T.DoubleSide,transparent:true,opacity:.7,depthWrite:false,fog:false}));ring.rotation.x=.95;mesh.add(ring);}
-  return mesh;
+  const mesh=createAtlasPlanet(index+1,false,p.color,4);mesh.name=p.name;mesh.scale.setScalar(p.size/(5+(index+1)*.4));
+  mesh.traverse(object=>{if(object instanceof T.Mesh){object.material.fog=false;object.castShadow=false;object.receiveShadow=false;if(object.material instanceof T.MeshStandardMaterial){object.material.emissive.set(p.color);object.material.emissiveIntensity=.12;}}});
+  scene.add(mesh);return mesh;
  });
  return {update(seconds:number){
-  for(let i=0;i<bodies.length;i++){bodies[i].position.copy(neighborSkyPosition(i,seconds));bodies[i].rotation.y=seconds*(.025+i*.007);}
+  const spin=solarState(seconds).spinAngle;
+  for(let i=0;i<bodies.length;i++){bodies[i].position.copy(neighborSkyPosition(i,seconds));bodies[i].rotation.z=-spin;bodies[i].getObjectByName('surface')!.rotation.y=seconds*(.025+(i+1)*.007);}
  }};
 }
 /** Recompute every frame: a one-time look direction drifts as the world rotates. */

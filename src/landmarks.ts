@@ -1,22 +1,25 @@
 import * as T from 'three';
+import {FRONTIER_PLACES} from './frontier.ts';
+import {WILDERNESS} from './wilderness.ts';
 import {hiddenByPlanet} from './sectors.ts';
 import {normalAt,sample,RADIUS} from './terrain.ts';
 import {surfaceOrientation} from './environment.ts';
 import {solarState} from './sky.ts';
 import type {Obstacle} from './simulation.ts';
 export const LANDMARKS=[
- {id:'arch',name:'Арка ветров',x:-40,z:-37,hint:'За холмами к западу от почтового домика.',text:'Каменная арка стоит здесь дольше любого дома. Ветер выточил в ней узкие борозды. На внутренней стороне кто-то выбил пять кружков вокруг шестого — старую карту нашей солнечной системы.'},
+ {id:'arch',name:'Арка ветров',x:-40,z:-37,hint:'За холмами к западу от почтового домика.',text:'Каменная арка стоит здесь дольше любого дома. Ветер выточил в ней узкие борозды. На внутренней стороне кто-то выбил пять кружков вокруг шестого — старую карту нашей звёздной системы.'},
  {id:'grove',name:'Медная роща',x:-48,z:35,hint:'На западном склоне, далеко от речных берегов.',text:'Листья здесь медные даже в разгар лета. Между корнями лежит табличка: «Посажено теми, кто вернулся». Лев говорит, что каждое дерево появилось после чьего-то долгого путешествия.'},
  {id:'lookout',name:'Звёздный уступ',x:44,z:48,hint:'За восточным берегом озера, дальше по холмам.',text:'Небольшая площадка открыта ветру и небу. На телескопе выгравировано: «Сначала научись смотреть». На скамье записка Ады: «Приходи, когда здесь стемнеет. Покажу, где искать Ирис».'},
 ].map(p=>({...p,up:normalAt(p.x,p.z)}));
+export const ALL_LANDMARKS=[...LANDMARKS,...WILDERNESS,...FRONTIER_PLACES];
 export type Exploration={places:string[];nightMeeting:boolean};
 export const initialExploration=():Exploration=>({places:[],nightMeeting:false});
 export function discoverPlace(state:Exploration,id:string):Exploration{
- return LANDMARKS.some(p=>p.id===id)&&!state.places.includes(id)?{...state,places:[...state.places,id]}:state;
+ return ALL_LANDMARKS.some(p=>p.id===id)&&!state.places.includes(id)?{...state,places:[...state.places,id]}:state;
 }
 export function restoreExploration(raw:string|null):Exploration{
  try{const s=JSON.parse(raw??'null');if(!s||!Array.isArray(s.places))return initialExploration();
- return {places:LANDMARKS.filter(p=>s.places.includes(p.id)).map(p=>p.id),nightMeeting:s.nightMeeting===true};}catch{return initialExploration();}
+ return {places:ALL_LANDMARKS.filter(p=>s.places.includes(p.id)).map(p=>p.id),nightMeeting:s.nightMeeting===true};}catch{return initialExploration();}
 }
 export function atObservatoryNight(seconds:number){return solarState(seconds).sunDirection.dot(LANDMARKS[2].up)<-.12;}
 export const ADA_OBSERVATORY_UP=normalAt(42,49);

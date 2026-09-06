@@ -1,3 +1,14 @@
+import {clearProgress} from './progress-reset.ts';
+import {createJournalUI} from './journal-ui.ts';
+import {setupFullscreen} from './fullscreen.ts';
+import {createFrontierUI,FRONTIER_SAVE_KEY} from './frontier-ui.ts';
+import {journeyEntries} from './journey.ts';
+import {createJourneyUI} from './journey-ui.ts';
+import {nextDiscoveryReading} from './discovery-reading.ts';
+import {createAzureStoryUI,AZURE_STORY_KEY} from './azure-story-ui.ts';
+import {createFireSeat,beginFireSeat,advanceFireSeat,leaveFireSeat} from './campfire-seat.ts';
+import {ResidentNavigationClient} from './resident-navigation-client.ts';
+import {PEOPLE,HOMES,FIRE_UP,OBSERVE_UP,ACTIVITY_LABEL,RESIDENT_SAVE_KEY,ResidentNavigation,restoreResidents,serializeResidents,advanceResidents,noahIsTelling,knockResident,localHour,homeLit,type PersonId} from './resident-life.ts';
 import {Soundscape} from './soundscape.ts';
 import {WorldAudio} from './world-audio.ts';
 import {MusicPlayer,MUSIC_TRACKS} from './music.ts';
@@ -7,17 +18,17 @@ import {initialContent,restoreContent,reduceContent,contentObjective,irisCanBeOb
 import {postcardMarkup} from './postcards.ts';
 import {createWildlife} from './wildlife.ts';
 import {resizeShadow} from './shadows.ts';
-import {LANDMARKS,initialExploration,restoreExploration,discoverPlace,atObservatoryNight,ADA_OBSERVATORY_UP,canRelocateResident} from './landmarks.ts';
+import {ALL_LANDMARKS,LANDMARKS,initialExploration,restoreExploration,discoverPlace,atObservatoryNight} from './landmarks.ts';
 import {CAMP} from './discoveries.ts';
 import {hiddenByPlanet} from './sectors.ts';
 import {createSystemMap} from './system-map.ts';
 import {FrameStats,QUALITY,type Quality} from './performance.ts';
-import {createNeighbors,NEIGHBORS,neighborDirection,planetAim,neighborSkyPosition} from './planets.ts';
+import {createNeighbors,HOME_PLANET,NEIGHBORS,neighborDirection,planetAim,neighborSkyPosition} from './planets.ts';
 import {trackballPoint,dragGlobe,globePosition} from './camera.ts';
-import {createSky,localPhase,DAY_SECONDS,YEAR_SECONDS} from './sky.ts';
+import {createSky,localPhase,localHours,secondsAtLocalHour,solarState,DAY_SECONDS,YEAR_SECONDS} from './sky.ts';
 import * as T from 'three';
 import {buildWorld,character} from './view.ts';
-import {createPlayer,step} from './simulation.ts';
+import {createPlayer,step,movementAction,type MovementMode} from './simulation.ts';
 import {WORLD_SAVE_KEY,restoreWorld,serializeWorld} from './persistence.ts';
 import {coordinates,normalAt,sample,RADIUS} from './terrain.ts';
 import {initialStory,restoreStory,reduceStory,dialogue,LETTERS,type ResidentId,type Action,type Dialogue} from './story.ts';
@@ -57,19 +68,29 @@ try{
  if(saved){({player,solarSeconds,timeSpeed,timeStopped,distance,elevation}=saved);worldRestored=true;}
 }catch{}
 solar=skySystem.update(solarSeconds,camera,player.up,true);neighbors.update(solarSeconds);
+const residentNavigation=new ResidentNavigationClient(world.obstacles);
+let residentStates=restoreResidents(null,residentNavigation);
+try{residentStates=restoreResidents(localStorage.getItem(RESIDENT_SAVE_KEY),residentNavigation);}catch{}
+const residentState=(id:PersonId)=>residentStates.find(r=>r.id===id)!;
+for(const r of world.residents)r.up.copy(residentState(r.id).up);
+let fireBurning=false,residentAnimationTime=0;
+let beaconLit=false;try{beaconLit=localStorage.getItem('little-orbit-azure-beacon-v1')==='on';}catch{}
+world.wilderness.setBeacon(beaconLit);
+const trailSeat=createFireSeat();let restingPlace:string|null=null;let lookoutLift=0;
+const fireSeat=createFireSeat();let guestNavigation:ResidentNavigationClient|undefined;
 function saveWorld(){
  if(!started)return;
- try{localStorage.setItem(WORLD_SAVE_KEY,serializeWorld({player,solarSeconds,timeSpeed,timeStopped,distance,elevation}));}
+ try{localStorage.setItem(WORLD_SAVE_KEY,serializeWorld({player,solarSeconds,timeSpeed,timeStopped,distance,elevation}));localStorage.setItem(RESIDENT_SAVE_KEY,serializeResidents(residentStates));}
  catch{if(!worldSaveWarning){worldSaveWarning=true;toast('Не удалось сохранить мир. После закрытия вкладки последние изменения могут потеряться.');}}
 }
 window.addEventListener('pagehide',saveWorld);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)saveWorld();});
-let exploration=initialExploration(),adaAtObservatory=false;try{exploration=restoreExploration(localStorage.getItem('little-orbit-exploration-v1'));}catch{}
+let exploration=initialExploration();try{exploration=restoreExploration(localStorage.getItem('little-orbit-exploration-v1'));}catch{}
 let campFound=false;try{campFound=localStorage.getItem('little-orbit-camp-v1')==='found';}catch{}
 let contentState=initialContent();try{contentState=restoreContent(localStorage.getItem('little-orbit-content-v1'));}catch{}
 if(campFound)contentState=reduceContent(contentState,{type:'clue',id:'camp'});
-let interactTarget:{kind:'adventure';id:string;name:string}|{kind:'place';id:string;name:string}|{kind:'camp';name:string}|{kind:'resident';id:ResidentId;name:string}|{kind:'letter';id:string;name:string}|null=null;
-const keys=new Set<string>();let jumpQueued=false,drag=false,softMouse=false;
+let interactTarget:{kind:'adventure';id:string;name:string}|{kind:'place';id:string;name:string}|{kind:'camp';name:string}|{kind:'resident';id:PersonId;name:string}|{kind:'home';id:PersonId;name:string}|{kind:'letter';id:string;name:string}|null=null;
+const keys=new Set<string>();let jumpQueued=false,modeQueued=false,drag=false,softMouse=false;
 const planetOrbit={orientation:new T.Quaternion().setFromRotationMatrix(new T.Matrix4().lookAt(new T.Vector3(100,155,143),new T.Vector3(),new T.Vector3(0,1,0))),distance:Math.hypot(100,155,143)};
 let grabPoint=new T.Vector3();
 function globePointer(x:number,y:number){
@@ -79,69 +100,62 @@ function globePointer(x:number,y:number){
 }
 const lockHint=document.createElement('div');lockHint.className='mouse-hint';lockHint.hidden=true;lockHint.textContent='Клик по миру — управлять камерой · Esc — освободить мышь';document.body.append(lockHint);
 const systemMap=createSystemMap($('system-map'));
-const dialogs=['conversation','journal','help','system-map-dialog'].map(id=>$<HTMLDialogElement>(id));
+const dialogs=['conversation','journal','help','system-map-dialog','reset-dialog'].map(id=>$<HTMLDialogElement>(id));
 const isPaused=()=>dialogs.some(d=>d.open)||!$('time-panel').hidden||!$('mobile-actions').hidden;
 function toast(message:string){$('toast').textContent=message;$('toast').hidden=false;toastUntil=time+4;}
 function save(){try{localStorage.setItem('little-orbit-story-v1',JSON.stringify(story));}catch{toast('Прогресс сохранён только до закрытия этой вкладки.');}}
 function updateStory(action?:Action){if(action){story=reduceStory(story,action);save();}
- $('quest-title').textContent=story.phase==='new'?'Первое знакомство':story.phase==='complete'?'Теперь ты здесь свой':'Письма на ветру';
- $('quest-summary').textContent=story.phase==='new'?'Поговори с Мирой у почтового домика.':story.phase==='complete'?'Письма доставлены. Продолжай исследовать маленький мир.':story.letters.length===3?'Все письма найдены! Вернись к Мире у почтового домика.':'Найди три письма: у моста, на берегу и на холме.';
- $('quest-count').textContent=story.phase==='new'?'Новая история ждёт тебя':story.phase==='complete'?'История завершена · спасибо тебе!':`${story.letters.length} / 3 писем найдено`;
- $('progress-fill').style.width=`${story.letters.length/3*100}%`;
- $('journal-text').textContent=$('quest-summary').textContent;
- $('letter-list').replaceChildren(...LETTERS.map(l=>{const row=document.createElement('div');row.className='letter-row';const icon=document.createElement('span');icon.textContent=story.letters.includes(l.id)?'✓':'✉';const info=document.createElement('span');info.textContent=l.name;const hint=document.createElement('small');hint.textContent=l.hint;info.append(hint);row.append(icon,info);return row;}));
  for(const l of world.letters)l.root.visible=story.phase==='active'&&!story.letters.includes(l.id);
 }
 updateStory();
 const campMarker=document.createElement('div');campMarker.className='camp-marker';campMarker.hidden=true;document.body.append(campMarker);
-const placeMarkers=LANDMARKS.map(place=>{const el=document.createElement('div');el.className='camp-marker';el.hidden=true;document.body.append(el);return {place,el};});
+const placeMarkers=ALL_LANDMARKS.map(place=>{const el=document.createElement('div');el.className='camp-marker';el.hidden=true;document.body.append(el);return {place,el};});
 const nameTags=world.residents.map(r=>{
  const el=document.createElement('div');el.className='resident-label';el.hidden=true;el.textContent=r.name;document.body.append(el);return {r,el};
 });
-function openDialog(id:string){releaseMouse();keys.clear();jumpQueued=false;drag=false;for(const d of dialogs)if(d.open)d.close();$<HTMLDialogElement>(id).showModal();}
-function talk(id:ResidentId,topic='greeting'){
+const homeMarkers=PEOPLE.map(p=>{const el=document.createElement('div');el.className='camp-marker';el.hidden=true;document.body.append(el);return {p,el};});
+function openDialog(id:string){if(id==='journal')refreshJournal();releaseMouse();keys.clear();jumpQueued=false;modeQueued=false;drag=false;for(const d of dialogs)if(d.open)d.close();$<HTMLDialogElement>(id).showModal();}
+function talk(id:PersonId,topic='greeting'){
+ if(id==='savva'){frontierUI.talk();return;}
+ if(id==='noah'){adventureUI.interact('traveler');return;}
  const r=world.residents.find(r=>r.id===id)!;
- const nightTalk=id==='ada'&&adaAtObservatory&&atObservatoryNight(solarSeconds);
- const line:Dialogue=nightTalk?(topic==='iris'?{text:'Ирис — тот лиловый мир с тонким кольцом. Он обращается вокруг солнца медленнее нашего. Иногда он прячется за горизонтом: попробуй N, чтобы следить за доступными планетами, или K, чтобы рассмотреть всю систему.',choices:[{text:'Попробую найти его'}]}:{text:'Ты всё-таки пришёл! Отсюда лучше видно небо. Я видела в старом лагере ту же схему, что выбита на Арке ветров: пять миров вокруг солнца. Когда-нибудь мы доберёмся до каждого. А сегодня начнём с наблюдений.',choices:[{text:'Расскажи об Ирисе',next:'iris'},{text:'Спасибо за этот вечер'}]}):dialogue(id,story,topic);
- if(nightTalk&&!exploration.nightMeeting){exploration={...discoverPlace(exploration,'lookout'),nightMeeting:true};saveExploration();updateExplorationJournal();toast('Открытие: вечер у телескопа с Адой.');}
- $('speaker').textContent=r.name;$('speaker-role').textContent=r.role;$('portrait').textContent=r.name[0];$('speech').textContent=line.text;
+ const nightTalk=id==='ada'&&!residentState('ada').inside&&residentState('ada').up.distanceTo(OBSERVE_UP)*RADIUS<3&&atObservatoryNight(solarSeconds);
+ const line:Dialogue=nightTalk?(topic==='iris'?{text:'Ирис — тот лиловый мир с тонким кольцом. Он обращается вокруг Ореола медленнее нашего. Иногда он прячется за горизонтом: попробуй N, чтобы следить за доступными планетами, или K, чтобы рассмотреть всю систему.',choices:[{text:'Попробую найти его'}]}:{text:'Ты всё-таки пришёл! Отсюда лучше видно небо. Я видела в старом лагере ту же схему, что выбита на Арке ветров: пять миров вокруг Ореола. Когда-нибудь мы доберёмся до каждого. А сегодня начнём с наблюдений.',choices:[{text:'Расскажи об Ирисе',next:'iris'},{text:'Спасибо за этот вечер'}]}):dialogue(id,story,topic);
+ if(nightTalk&&!exploration.nightMeeting){exploration={...discoverPlace(exploration,'lookout'),nightMeeting:true};saveExploration();toast('Открытие: вечер у телескопа с Адой.');}
+ $('speaker').textContent=r.name;$('speaker-role').textContent=r.role;$('portrait').textContent=r.name[0];$('speech').textContent=(topic==='greeting'&&!nightTalk?(id==='lev'&&adventureUI.state.bell==='complete'?'Слышишь? Твой колокольчик снова бережёт мой сад. Рад тебя видеть! ':id==='ada'&&adventureUI.state.meteor==='complete'?'Рада тебя видеть. Твой образец лежит на почётном месте у окна. ':''):'')+line.text;
  $('choices').replaceChildren(...line.choices.map(choice=>{const button=document.createElement('button');button.textContent=choice.text;button.onclick=()=>{if(choice.next){talk(id,choice.next);return;}if(choice.action){updateStory({type:choice.action});toast(choice.action==='accept'?'Новая история: «Письма на ветру»':'История завершена. В Тихой долине стало на одного друга больше.');}$<HTMLDialogElement>('conversation').close();canvas.focus();};return button;}));
  if(id==='mira')addContentChoice('Открытки для долины',postcardConversation);
  if(id==='ada'&&contentState.iris!=='dormant')addContentChoice('Знаки из старого лагеря',irisConversation);
  adventureUI.residentChoices(id);
  if(!$<HTMLDialogElement>('conversation').open)openDialog('conversation');
 }
-function updateCampJournal(){
- $('camp-journal').textContent=campFound?'✓ Лагерь астронома · В записке упоминаются огни на кольцах Ириса.':'◇ На дальней стороне есть одинокая палатка. Ищи отметку в обзоре планеты (M).';
- $('camp-read').hidden=!campFound;
-}
 function readCamp(){
  updateContent({type:'clue',id:'camp'});
- campFound=true;try{localStorage.setItem('little-orbit-camp-v1','found');}catch{toast('Открытие сохранено только до закрытия вкладки.');}updateCampJournal();
+ campFound=true;try{localStorage.setItem('little-orbit-camp-v1','found');}catch{toast('Открытие сохранено только до закрытия вкладки.');}
  $('speaker').textContent='Записка астронома';$('speaker-role').textContent=CAMP.name;$('portrait').textContent='✧';$('speech').textContent=CAMP.text+' На полях нарисованы каменная арка, лист и телескоп. Похоже, автор оставил ещё несколько отметок. Следующий шаг записан в журнале.';
  const close=document.createElement('button');close.textContent='Сохранить в памяти';close.onclick=()=>{$<HTMLDialogElement>('conversation').close();};$('choices').replaceChildren(close);openDialog('conversation');
 }
-updateCampJournal();$('camp-read').onclick=readCamp;
+
 function saveExploration(){try{localStorage.setItem('little-orbit-exploration-v1',JSON.stringify(exploration));}catch{toast('Открытия сохранятся только до закрытия вкладки.');}}
-function updateExplorationJournal(){
- $('discovery-count').textContent=`Открытые места · ${exploration.places.length} / ${LANDMARKS.length}`;
- $('discovery-list').replaceChildren(...LANDMARKS.map(place=>{
-  const found=exploration.places.includes(place.id),row=document.createElement('div');row.className='discovery-row';
-  const title=document.createElement('strong');title.textContent=(found?'✓ ':'◇ ')+place.name;
-  const hint=document.createElement('p');hint.textContent=place.hint;row.append(title,hint);
-  if(found){const button=document.createElement('button');button.textContent='Перечитать';button.onclick=()=>inspectPlace(place.id);row.append(button);}return row;
- }));
- $('night-meeting').textContent=exploration.nightMeeting?'✓ Вечер с Адой · Пять миров и одна будущая дорога.':'✧ Ада приходит к телескопу, когда на Звёздном уступе наступает ночь.';
-}
-function markPlace(id:string){const next=discoverPlace(exploration,id);if(next===exploration)return;exploration=next;saveExploration();updateExplorationJournal();toast(`Новое место: ${LANDMARKS.find(p=>p.id===id)!.name} · записано в журнал`);}
-function inspectPlace(id:string){const place=LANDMARKS.find(p=>p.id===id);if(!place)return;markPlace(id);
+function markPlace(id:string){const next=discoverPlace(exploration,id);if(next===exploration)return;exploration=next;saveExploration();toast(`Новое место: ${ALL_LANDMARKS.find(p=>p.id===id)!.name} · записано в журнал`);}
+const azureStory=createAzureStoryUI({near:atPlace,lit:()=>beaconLit,dialog:contentDialog,choice:addContentChoice,toast,
+ load:()=>localStorage.getItem(AZURE_STORY_KEY),save:raw=>localStorage.setItem(AZURE_STORY_KEY,raw),journal:()=>{}});
+const frontierUI=createFrontierUI({near:atPlace,nearSavva:()=>started&&!overview&&!residentState('savva').inside&&residentState('savva').up.distanceTo(player.up)*RADIUS<3.2,dialog:contentDialog,choice:addContentChoice,toast,load:()=>localStorage.getItem(FRONTIER_SAVE_KEY),save:raw=>localStorage.setItem(FRONTIER_SAVE_KEY,raw),journal:()=>{}});
+function inspectPlace(id:string){const place=ALL_LANDMARKS.find(p=>p.id===id);if(!place)return;markPlace(id);
+ if(frontierUI.discover(id)){addContentChoice('Осмотреть место',()=>inspectPlace(id));return;}
+ if(azureStory.discover(id,place.text)){addContentChoice('Осмотреть место',()=>inspectPlace(id));return;}
  $('speaker').textContent=place.name;$('speaker-role').textContent='ЗАПИСКИ О МЕСТЕ';$('portrait').textContent='◇';$('speech').textContent=place.text;
  const close=document.createElement('button');close.textContent='Продолжить прогулку';close.onclick=()=>{$<HTMLDialogElement>('conversation').close();};$('choices').replaceChildren(close);
- if(atPlace(id)){updateContent({type:'clue',id});if(contentState.clues.includes(id)&&CLUE_TEXT[id])$('speech').textContent=place.text+' '+CLUE_TEXT[id];if(contentState.postcards==='active'&&!contentState.cards.includes(id))addContentChoice('Зарисовать вид для открытки',()=>drawPostcard(id));
+ if(atPlace(id)){updateContent({type:'clue',id});if(contentState.clues.includes(id)&&CLUE_TEXT[id])$('speech').textContent=place.text+' '+CLUE_TEXT[id];if(LANDMARKS.some(p=>p.id===id)&&contentState.postcards==='active'&&!contentState.cards.includes(id))addContentChoice('Зарисовать вид для открытки',()=>drawPostcard(id));
  if(id==='lookout'&&contentState.iris==='searching'&&contentState.clues.length===3)addContentChoice('Наблюдать Ирис в телескоп',observeIris);}
+ if(atPlace(id)){
+  if(id==='azure-beacon')addContentChoice(beaconLit?'Погасить маяк':'Зажечь маяк',()=>{if(!atPlace(id))return;beaconLit=!beaconLit;world.wilderness.setBeacon(beaconLit);azureStory.refresh();try{localStorage.setItem('little-orbit-azure-beacon-v1',beaconLit?'on':'off');}catch{toast('Свет сохранится только до закрытия вкладки.');}inspectPlace(id);});
+  azureStory.choices(id);frontierUI.choices(id);
+  const rest=world.wilderness.places.find(p=>p.id===id);if(rest?.restUp)addContentChoice(rest.climbHeight?(trailSeat.phase==='seated'&&restingPlace===id?'Спуститься с маяка':'Подняться на маяк'):'Посидеть на бревне',()=>{if(rest.climbHeight&&trailSeat.phase==='seated'&&restingPlace===id){leaveFireSeat(trailSeat);$<HTMLDialogElement>('conversation').close();return;}if(beginFireSeat(trailSeat,player,true,rest.restUp!)){restingPlace=id;guestNavigation??=new ResidentNavigationClient(world.obstacles.map(o=>({...o,radius:o.radius+.06})));$<HTMLDialogElement>('conversation').close();keys.clear();toast(rest.climbHeight?'Подходим к лестнице · движение или Esc — спуститься':'Подходим к бревну · движение или Esc — встать');}});
+ }
  openDialog('conversation');
 }
-updateExplorationJournal();
+
 function addContentChoice(text:string,action:()=>void){const button=document.createElement('button');button.textContent=text;button.onclick=action;$('choices').append(button);}
 function contentDialog(speaker:string,text:string){
  $('speaker').textContent=speaker;$('speaker-role').textContent='ИСТОРИИ ТИХОЙ ДОЛИНЫ';$('portrait').textContent=speaker[0];$('speech').textContent=text;$('choices').replaceChildren();
@@ -149,10 +163,7 @@ function contentDialog(speaker:string,text:string){
 }
 function updateContent(action?:ContentAction){
  if(action){const next=reduceContent(contentState,action);if(next!==contentState){contentState=next;try{localStorage.setItem('little-orbit-content-v1',JSON.stringify(contentState));}catch{toast('Истории сохранятся только до закрытия вкладки.');}}}
- $('postcard-status').textContent=contentState.postcards==='new'?'Мира собирает альбом красивых мест. Поговори с ней об открытках.':contentState.postcards==='complete'?'✓ Альбом передан Мире · звание «Летописец долины»':contentState.cards.length===3?'Три открытки готовы. Вернись к Мире и покажи альбом.':`Зарисовки: ${contentState.cards.length} / 3. У арки, рощи и телескопа нажми P или выбери зарисовку в осмотре по E.`;
- $('postcard-album').innerHTML=contentState.cards.map(postcardMarkup).join('');$('iris-objective').textContent=contentObjective(contentState);
- $('iris-clues').textContent=contentState.iris==='dormant'?'':[['camp','Записка'],['arch','Знаки арки'],['grove','Табличка рощи']].map(([id,title])=>`${contentState.clues.includes(id)?'✓':'◇'} ${title}`).join(' · ');
- $('iris-reread').hidden=contentState.iris!=='complete';
+
 }
 function postcardConversation(){
  if(contentState.postcards==='new'){
@@ -163,10 +174,10 @@ function postcardConversation(){
   addContentChoice('Передать альбом Мире',()=>{updateContent({type:'deliver'});contentDialog('Мира','На письме теперь написано: «У нас многое по-прежнему. Но я снова это замечаю». Мира кладёт рядом с открытками два конверта. «Второй — для тебя. Копии на память. А завтра я закрою почту на час и сама дойду до рощи. Если кто спросит, виноват наш летописец». Она улыбается и убирает табличку «Не отходить далеко» в ящик.');});
  }else contentDialog('Мира',contentState.postcards==='complete'?'Сестра ещё не ответила, а я уже придумываю, куда поведу её, если приедет. Твой альбом лежит у окна. Иногда заходят за письмами, а остаются рассматривать рисунки.':contentState.cards.length===0?'Я нашла старое письмо сестры: там целая страница о том, как пахнет роща после дождя. Вот что я хочу ей вернуть — не список достопримечательностей, а ощущение дома. Начни с любого из трёх мест.':`Ты уже зарисовал ${contentState.cards.length===1?'одно место':'два места'}? Я поймала себя на том, что жду эти рисунки больше, чем вечернюю почту. Ещё остались ${LANDMARKS.filter(p=>!contentState.cards.includes(p.id)).map(p=>p.name).join(' и ')}. Если устанешь — просто посиди там. Бумага подождёт.`);
 }
-function atPlace(id:string){const place=LANDMARKS.find(p=>p.id===id);return started&&!overview&&!!place&&place.up.distanceTo(player.up)*RADIUS<7;}
+function atPlace(id:string){const place=ALL_LANDMARKS.find(p=>p.id===id);return started&&!overview&&!!place&&place.up.distanceTo(player.up)*RADIUS<7;}
 function drawPostcard(id?:string){
  id??=LANDMARKS.find(p=>atPlace(p.id))?.id;
- if(!id||!atPlace(id)){toast('Для зарисовки подойди к арке, Медной роще или телескопу.');return;}
+ if(!id||!LANDMARKS.some(p=>p.id===id)||!atPlace(id)){toast('Для зарисовки подойди к арке, Медной роще или телескопу.');return;}
  if(contentState.postcards==='new'){toast('Сначала поговори с Мирой об альбоме открыток.');return;}
  if(contentState.cards.includes(id)){toast('Этот вид уже есть в твоём альбоме.');return;}
  markPlace(id);updateContent({type:'card',id});contentDialog('Открытка готова',`Зарисовка сохранена в журнале · ${contentState.cards.length} / 3.`);$('choices').insertAdjacentHTML('afterbegin',postcardMarkup(id));
@@ -180,21 +191,30 @@ function irisConversation(){
  if(contentState.iris==='observed'){updateContent({type:'decode'});contentDialog('Ада',IRIS_ENDING);}
  else contentDialog('Ада',contentState.iris==='complete'?IRIS_ENDING:'Это не просто украшения: метки похожи на старый наблюдательный шифр. '+contentObjective(contentState));
 }
-$('iris-reread').onclick=()=>contentDialog('Запись Ады',IRIS_ENDING);updateContent();
-const adventureUI=createAdventureUI({dialog:contentDialog,choice:addContentChoice,toast,
- near:id=>{const p=world.adventures.points.find(p=>p.id===id);return started&&!overview&&!!p&&p.inspectUp.distanceTo(player.up)*RADIUS<3.2;},
- residentNear:id=>started&&!overview&&world.residents.some(r=>r.id===id&&r.up.distanceTo(player.up)*RADIUS<3.2),
- seconds:()=>solarSeconds,completed:()=>Number(story.phase==='complete')+Number(contentState.postcards==='complete')+Number(contentState.iris==='complete'),travelerPresent:()=>world.adventures.traveler.visible});
-const adventureMarkers=world.adventures.points.map(place=>{const el=document.createElement('div');el.className='camp-marker';el.hidden=true;document.body.append(el);return {place,el};});
 
-function interact(){if(!started||overview||isPaused()||!interactTarget)return;if(interactTarget.kind==='adventure'){adventureUI.interact(interactTarget.id);return;}if(interactTarget.kind==='place'){inspectPlace(interactTarget.id);return;}if(interactTarget.kind==='camp'){readCamp();return;}if(interactTarget.kind==='resident')talk(interactTarget.id);else{updateStory({type:'collect',id:interactTarget.id});toast(`Найдено: ${interactTarget.name} · ${story.letters.length}/3`);}}
+const knownJourneys=new Set<string>();
+try{const ids=JSON.parse(localStorage.getItem('little-orbit-known-journeys-v1')??'[]');if(Array.isArray(ids))for(const id of ids)if(['cave','tales','festival','fireside'].includes(id))knownJourneys.add(id);}catch{}
+function knowJourney(id:string){knownJourneys.add(id);try{localStorage.setItem('little-orbit-known-journeys-v1',JSON.stringify([...knownJourneys]));}catch{}}
+const adventureUI=createAdventureUI({known:knowJourney,dialog:contentDialog,choice:addContentChoice,toast,
+ near:id=>{if(id==='traveler')return started&&!overview&&!residentState('noah').inside&&residentState('noah').up.distanceTo(player.up)*RADIUS<3.2;const p=world.adventures.points.find(p=>p.id===id);return started&&!overview&&!!p&&p.inspectUp.distanceTo(player.up)*RADIUS<3.2;},
+ residentNear:id=>started&&!overview&&world.residents.some(r=>r.id===id&&!residentState(r.id).inside&&r.up.distanceTo(player.up)*RADIUS<3.2),
+ seconds:()=>solarSeconds,completed:()=>Number(story.phase==='complete')+Number(contentState.postcards==='complete')+Number(contentState.iris==='complete')+Number(azureStory.state.complete)+Number(frontierUI.state.wind==='complete')+Number(frontierUI.state.diary==='complete'),travelerPresent:()=>!residentState('noah').inside,storytelling:()=>noahIsTelling(solarSeconds,residentState('noah')),seatedByFire:()=>fireSeat.phase==='seated',
+ beginFireSeat:()=>{if(beginFireSeat(fireSeat,player,noahIsTelling(solarSeconds,residentState('noah')))){guestNavigation??=new ResidentNavigationClient(world.obstacles.map(o=>({...o,radius:o.radius+.06})));$<HTMLDialogElement>('conversation').close();keys.clear();toast('Подходим к свободному месту · движение или Esc — отменить');}else toast('Чтобы сесть, подойди к Ною на суше, когда он рассказывает у костра.');},
+ leaveFireSeat:()=>{leaveFireSeat(fireSeat);$<HTMLDialogElement>('conversation').close();toast('Ты встал с бревна.');}});
+const journeyUI=createJourneyUI({focusControls:()=>{releaseMouse();keys.clear();jumpQueued=false;modeQueued=false;},openJournal:()=>{openDialog('journal');$('journal').scrollTop=0;},load:()=>localStorage.getItem('little-orbit-tracked-journey-v1'),save:id=>localStorage.setItem('little-orbit-tracked-journey-v1',id)});
+const journalUI=createJournalUI({track:id=>journeyUI.track(id)});
+function journeySnapshot(){return {story,content:contentState,adventures:adventureUI.state,exploration,azure:azureStory.state,frontier:frontierUI.state,known:[...knownJourneys],seconds:solarSeconds,beaconLit,noahTelling:noahIsTelling(solarSeconds,residentState('noah'))};}
+function refreshJournal(){const snapshot=journeySnapshot(),rows=journeyEntries(snapshot);journeyUI.update(rows);journalUI.update(snapshot,rows,journeyUI.selected,campFound);}
+const adventureMarkers=world.adventures.points.filter(p=>p.id!=='traveler').map(place=>{const el=document.createElement('div');el.className='camp-marker';el.hidden=true;document.body.append(el);return {place,el};});
+
+function interact(){if(!started||overview||isPaused())return;if(fireSeat.phase==='seated'){adventureUI.fireside();return;}if(!interactTarget)return;if(interactTarget.kind==='home'){knockResident(residentState(interactTarget.id));toast(`${interactTarget.name}: сейчас выйду!`);return;}if(interactTarget.kind==='adventure'){adventureUI.interact(interactTarget.id);return;}if(interactTarget.kind==='place'){inspectPlace(interactTarget.id);return;}if(interactTarget.kind==='camp'){readCamp();return;}if(interactTarget.kind==='resident')talk(interactTarget.id);else{updateStory({type:'collect',id:interactTarget.id});toast(`Найдено: ${interactTarget.name} · ${story.letters.length}/3`);}}
 function releaseMouse(){touch.reset();drag=false;softMouse=false;if(document.pointerLockElement===canvas)document.exitPointerLock();}
 async function captureMouse(){
  if(touchMode||!started||overview||isPaused()||document.pointerLockElement===canvas)return;
  try{await canvas.requestPointerLock();}catch{enableSoftMouse();}
 }
 function enableSoftMouse(){if(started&&!overview&&!isPaused()){softMouse=true;toast('Камера следует за мышью над игровым полем · Esc — освободить');}}
-function toggleOverview(relock=true){if(!started||isPaused())return;overview=!overview;trackingPlanet=false;keys.clear();jumpQueued=false;releaseMouse();document.body.classList.toggle('overview',overview);$('overview-label').hidden=!overview;$('interact').hidden=true;if(!overview&&relock)void captureMouse();}
+function toggleOverview(relock=true){if(!started||isPaused())return;overview=!overview;trackingPlanet=false;keys.clear();jumpQueued=false;modeQueued=false;releaseMouse();document.body.classList.toggle('overview',overview);$('overview-label').hidden=!overview;$('interact').hidden=true;if(!overview&&relock)void captureMouse();}
 $('start').onclick=()=>{if(!soundChosen)toggleSound();started=true;document.body.classList.add('playing');$('hud').hidden=false;canvas.focus();void captureMouse();toast(worldRestored?'Прогулка продолжается с сохранённого места.':'Добро пожаловать! Мира ждёт у почтового домика.');};
 $('overview').onclick=()=>toggleOverview();
 function openSystemMap(){if(!started)return;$('time-panel').hidden=true;systemMap.update(solarSeconds);openDialog('system-map-dialog');}
@@ -209,30 +229,48 @@ function observePlanet(){
  toast('Соседние планеты сейчас за горизонтом. Попробуй другое время суток.');
 }
 $('observe-planets').onclick=observePlanet;
-$('time-toggle').onclick=()=>{releaseMouse();keys.clear();jumpQueued=false;$('time-panel').hidden=!$('time-panel').hidden;};
+$('time-place').textContent=`ВРЕМЯ НА ${HOME_PLANET.locative.toUpperCase()}`;
+$('time-toggle').onclick=()=>{releaseMouse();keys.clear();jumpQueued=false;modeQueued=false;$('time-panel').hidden=!$('time-panel').hidden;};
 $('time-pause').textContent=timeStopped?'▶ Продолжить':'Ⅱ Пауза';
 $('time-pause').setAttribute('aria-pressed',String(timeStopped));
 $('time-speed').textContent=`Скорость ×${timeSpeed}`;
 $('time-pause').onclick=()=>{timeStopped=!timeStopped;$('time-pause').textContent=timeStopped?'▶ Продолжить':'Ⅱ Пауза';$('time-pause').setAttribute('aria-pressed',String(timeStopped));saveWorld();};
 $('time-speed').onclick=()=>{timeSpeed=timeSpeed===1?5:timeSpeed===5?20:1;$('time-speed').textContent=`Скорость ×${timeSpeed}`;saveWorld();};
 for(const button of document.querySelectorAll<HTMLButtonElement>('[data-hour]'))button.onclick=()=>{
- solarSeconds=Math.floor(solarSeconds/DAY_SECONDS)*DAY_SECONDS+Number(button.dataset.hour)/24*DAY_SECONDS;skyTick=1;shadowTick=1;saveWorld();
+ solarSeconds=secondsAtLocalHour(solarSeconds,Number(button.dataset.hour),player.up);skyTick=1;shadowTick=1;saveWorld();
 };
 
-$('reset').onclick=()=>{if($('reset').dataset.confirm!=='yes'){$('reset').dataset.confirm='yes';$('reset').textContent='Подтвердить: сбросить найденные письма?';return;}story=initialStory();player=createPlayer();updateStory();save();saveWorld();$('reset').dataset.confirm='';$('reset').textContent='Начать историю заново';$<HTMLDialogElement>('journal').close();toast('Новая прогулка начинается.');};
+$('reset').onclick=()=>{$('reset-error').hidden=true;openDialog('reset-dialog');$('reset-cancel').focus();};
+$('reset-cancel').onclick=()=>openDialog('journal');
+$('reset-confirm').onclick=()=>{
+ try{clearProgress(localStorage);}catch{$('reset-error').textContent='Не удалось сбросить сохранение в браузере. Новая игра не начата. Попробуй ещё раз.';$('reset-error').hidden=false;return;}
+ story=initialStory();exploration=initialExploration();contentState=initialContent();campFound=false;beaconLit=false;knownJourneys.clear();
+ adventureUI.reset();azureStory.reset();frontierUI.reset();journeyUI.reset();journalUI.reset();
+ player=createPlayer();lookoutLift=0;leaveFireSeat(fireSeat);leaveFireSeat(trailSeat);restingPlace=null;
+ solarSeconds=DAY_SECONDS*.43;timeSpeed=1;timeStopped=false;distance=15;elevation=.55;
+ residentStates=restoreResidents(null,residentNavigation);for(const r of world.residents)r.up.copy(residentState(r.id).up);
+ world.wilderness.setBeacon(false);trackingPlanet=false;observedPlanet=-1;overview=false;worldRestored=false;
+ document.body.classList.remove('overview');$('overview-label').hidden=true;$('time-panel').hidden=true;
+ $('time-pause').textContent='Ⅱ Пауза';$('time-pause').setAttribute('aria-pressed','false');$('time-speed').textContent='Скорость ×1';
+ keys.clear();jumpQueued=false;modeQueued=false;interactTarget=null;$('interact').hidden=true;
+ skyTick=1;shadowTick=1;announcedLocation='';updateStory();refreshJournal();saveWorld();
+ $<HTMLDialogElement>('reset-dialog').close();canvas.focus();toast('Новая игра началась. Журнал очищен. Мира ждёт у почтового домика.');
+};
 for(const el of document.querySelectorAll<HTMLButtonElement>('[data-close]'))el.onclick=()=>{$<HTMLDialogElement>(el.dataset.close!).close();canvas.focus();};
 for(const d of dialogs)d.addEventListener('close',()=>{keys.clear();canvas.focus();});
 window.addEventListener('keydown',e=>{
+ if(e.target instanceof HTMLSelectElement||e.target instanceof HTMLInputElement||e.target instanceof HTMLTextAreaElement)return;
+ if(e.target instanceof HTMLButtonElement&&['Space','Enter'].includes(e.code))return;
  if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)&&started&&!isPaused())e.preventDefault();
  if(e.repeat)return;
- if(e.code==='Backquote'||e.key==='~'){e.preventDefault();debugVisible=!debugVisible;debugPanel.hidden=!debugVisible;if(debugVisible){releaseMouse();keys.clear();jumpQueued=false;}return;}
- if(e.code==='Escape'){keys.clear();jumpQueued=false;releaseMouse();if(!$('time-panel').hidden)$('time-panel').hidden=true;else if(overview)toggleOverview(false);return;}
- if(isPaused()||!started||e.target instanceof HTMLSelectElement)return;
- if(e.code==='KeyP'&&!overview)drawPostcard();else if(e.code==='KeyK')openSystemMap();else if(e.code==='KeyN')observePlanet();else if(e.code==='KeyE')interact();else if(e.code==='KeyM')toggleOverview();else if(e.code==='KeyJ')openDialog('journal');else if(!overview){keys.add(e.code);if(e.code==='Space')jumpQueued=true;}
+ if(e.code==='Backquote'||e.key==='~'){e.preventDefault();debugVisible=!debugVisible;debugPanel.hidden=!debugVisible;if(debugVisible){releaseMouse();keys.clear();jumpQueued=false;modeQueued=false;}return;}
+ if(e.code==='Escape'){if(!isPaused()){leaveFireSeat(fireSeat);leaveFireSeat(trailSeat);}keys.clear();jumpQueued=false;modeQueued=false;releaseMouse();if(!$('time-panel').hidden)$('time-panel').hidden=true;else if(overview)toggleOverview(false);return;}
+ if(isPaused()||!started)return;
+ if(e.code==='KeyF'&&!overview){e.preventDefault();requestMovementChange();}else if(e.code==='KeyP'&&!overview)drawPostcard();else if(e.code==='KeyK')openSystemMap();else if(e.code==='KeyN')observePlanet();else if(e.code==='KeyE')interact();else if(e.code==='KeyM')toggleOverview();else if(e.code==='KeyJ')openDialog('journal');else if(!overview){keys.add(e.code);if(e.code==='Space')jumpQueued=true;}
 });
-window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>{keys.clear();jumpQueued=false;releaseMouse();});document.addEventListener('visibilitychange',()=>{keys.clear();jumpQueued=false;last=0;accumulator=0;frameStats.reset();});
+window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>{keys.clear();jumpQueued=false;modeQueued=false;releaseMouse();});document.addEventListener('visibilitychange',()=>{keys.clear();jumpQueued=false;modeQueued=false;last=0;accumulator=0;frameStats.reset();});
 document.addEventListener('pointerlockchange',()=>{
- keys.clear();jumpQueued=false;
+ keys.clear();jumpQueued=false;modeQueued=false;
  if(document.pointerLockElement===canvas&&(overview||isPaused()||!started))releaseMouse();
 });
 document.addEventListener('pointerlockerror',enableSoftMouse);
@@ -265,9 +303,27 @@ const touch=createTouchControls({canvas,stick:$('touch-stick'),knob:$('touch-kno
  globe:(from,to)=>{dragGlobe(planetOrbit.orientation,globePointer(from.x,from.y),globePointer(to.x,to.y));},
  zoom:ratio=>{if(overview)planetOrbit.distance=T.MathUtils.clamp(planetOrbit.distance*ratio,160,360);else distance=T.MathUtils.clamp(distance*ratio,7,27);}});
 $('interact').onclick=interact;
-$('touch-jump').addEventListener('pointerdown',e=>{e.preventDefault();if(started&&!overview&&!isPaused())jumpQueued=true;});
+function requestMovementChange(){
+ if(!started||overview||isPaused())return;
+ if(movementAction(player,world.obstacles)){modeQueued=true;trackingPlanet=false;}
+ else toast(player.mode==='swim'?'Подплыви к пологому берегу, чтобы выйти из воды.':'Подойди к воде по пологому берегу, чтобы поплыть.');
+}
+$('movement-action').onclick=requestMovementChange;
+let shoreTick=0,shoreAction:MovementMode|null=null;
+function updateMovementControl(paused:boolean){
+ const button=$<HTMLButtonElement>('movement-action');
+ button.hidden=paused||!shoreAction;
+ const text=shoreAction==='swim'?'Плавать':'На берег';
+ button.setAttribute('aria-label',text);
+ if(button.querySelector('span')!.textContent!==text)button.querySelector('span')!.textContent=text;
+ $('movement-status').hidden=paused||player.mode!=='swim';
+ $('touch-jump').hidden=player.mode==='swim';
+}
+
+$('touch-jump').addEventListener('pointerdown',e=>{e.preventDefault();if(started&&!overview&&!isPaused()&&player.mode==='walk')jumpQueued=true;});
+setupFullscreen($('mobile-fullscreen'),toast,()=>{closeMobileMenu();releaseMouse();keys.clear();jumpQueued=false;modeQueued=false;});
 function closeMobileMenu(){$('mobile-actions').hidden=true;$('mobile-menu').setAttribute('aria-expanded','false');}
-$('mobile-menu').onclick=()=>{const open=$('mobile-actions').hidden;releaseMouse();keys.clear();jumpQueued=false;$('mobile-actions').hidden=!open;$('mobile-menu').setAttribute('aria-expanded',String(open));};
+$('mobile-menu').onclick=()=>{const open=$('mobile-actions').hidden;releaseMouse();keys.clear();jumpQueued=false;modeQueued=false;$('mobile-actions').hidden=!open;$('mobile-menu').setAttribute('aria-expanded',String(open));};
 for(const [id,action] of Object.entries({'mobile-overview':()=>toggleOverview(),'mobile-system':openSystemMap,'mobile-journal':()=>openDialog('journal'),'mobile-postcard':()=>{if(!overview)drawPostcard();},'mobile-help':()=>openDialog('help')}))$(id).onclick=()=>{closeMobileMenu();action();};
 $('mobile-quality').onclick=()=>{const next=quality==='economy'?'balanced':quality==='balanced'?'high':'economy';applyQuality(next);$<HTMLSelectElement>('quality-select').value=next;$('mobile-quality').textContent=`Графика: ${QUALITY[next].label.toLowerCase()}`;};
 if(touchMode){applyQuality('economy');$<HTMLSelectElement>('quality-select').value='economy';$('overview-label').querySelector('small')!.textContent='Потяни планету для вращения · Два пальца — масштаб · Меню — назад';}
@@ -329,69 +385,112 @@ document.addEventListener('visibilitychange',()=>{music.setHidden(document.hidde
 
 const facing=player.forward.clone(),right=new T.Vector3(),matrix=new T.Matrix4(),desiredCamera=new T.Vector3(),desiredUp=new T.Vector3(),look=new T.Vector3(),cameraLook=new T.Vector3(-25,0,0);
 function pose(object:T.Object3D,up:T.Vector3,heading:T.Vector3,height:number){right.crossVectors(heading,up).normalize();matrix.makeBasis(right,up,heading.clone().negate());object.quaternion.setFromRotationMatrix(matrix);object.position.copy(up).multiplyScalar(height);}
+let announcedLocation='',locationVisibleUntil=0;
+const locationBanner=document.querySelector<HTMLElement>('.location')!;
 function nearby(){
+ const newReading=nextDiscoveryReading([
+  ...world.landmarks.places.map(p=>({id:p.id,distance:p.up.distanceTo(player.up)*RADIUS,radius:7,unread:!exploration.places.includes(p.id)||azureStory.unread(p.id)||frontierUI.unread(p.id)})),
+  {id:'astronomer-note',distance:world.camp.noteUp.distanceTo(player.up)*RADIUS,radius:3.2,unread:!campFound},
+ ],!started||overview||isPaused());
+ if(newReading){if(newReading==='astronomer-note')readCamp();else inspectPlace(newReading);}
+
+
  interactTarget=null;let best=3.2;
- for(const r of world.residents){const d=r.up.distanceTo(player.up)*RADIUS;if(d<best){best=d;interactTarget={kind:'resident',id:r.id,name:r.name};}}
+ for(const r of world.residents){if(residentState(r.id).inside)continue;const d=r.up.distanceTo(player.up)*RADIUS;if(d<best){best=d;interactTarget={kind:'resident',id:r.id,name:r.name};}}
+ for(const p of PEOPLE){const h=HOMES[p.id],d=h.porch.distanceTo(player.up)*RADIUS;if(residentState(p.id).inside&&d<best){best=d;interactTarget={kind:'home',id:p.id,name:p.name};}}
  for(const l of world.letters){if(!l.root.visible)continue;const d=l.up.distanceTo(player.up)*RADIUS;if(d<best){best=d;interactTarget={kind:'letter',id:l.id,name:l.name};}}
  const campDistance=world.camp.noteUp.distanceTo(player.up)*RADIUS;if(campDistance<best){best=campDistance;interactTarget={kind:'camp',name:CAMP.name};}
- for(const place of world.landmarks.places){const d=place.inspectUp.distanceTo(player.up)*RADIUS;if(d<best){best=d;interactTarget={kind:'place',id:place.id,name:place.name};}if(!overview&&!isPaused()&&place.up.distanceTo(player.up)*RADIUS<7)markPlace(place.id);}
- for(const p of world.adventures.points){if(!adventureUI.available(p.id))continue;const d=p.inspectUp.distanceTo(player.up)*RADIUS;if(d<best){best=d;interactTarget={kind:'adventure',id:p.id,name:p.name};}}
- $('interact').hidden=!interactTarget||overview||isPaused();if(interactTarget)$('interact').querySelector('span')!.textContent=interactTarget.kind==='resident'?`Поговорить · ${interactTarget.name}`:interactTarget.kind==='camp'?'Прочитать записку':(interactTarget.kind==='place'||interactTarget.kind==='adventure')?`Осмотреть · ${interactTarget.name}`:'Подобрать письмо';
- const {x,z}=coordinates(player.up);let name='Зелёные холмы',sub='За каждым холмом — что-то новое';
+ for(const place of world.landmarks.places){const d=place.inspectUp.distanceTo(player.up)*RADIUS;if(d<best){best=d;interactTarget={kind:'place',id:place.id,name:place.name};}}
+ for(const p of world.adventures.points){if(p.id==='traveler'||!adventureUI.available(p.id))continue;const d=p.inspectUp.distanceTo(player.up)*RADIUS;if(d<best){best=d;interactTarget={kind:'adventure',id:p.id,name:p.name};}}
+ $('interact').hidden=!interactTarget||overview||isPaused();if(interactTarget)$('interact').querySelector('span')!.textContent=interactTarget.kind==='home'?`Постучать · ${interactTarget.name}`:interactTarget.kind==='resident'?`Поговорить · ${interactTarget.name}`:interactTarget.kind==='camp'?'Прочитать записку':(interactTarget.kind==='place'||interactTarget.kind==='adventure')?`Осмотреть · ${interactTarget.name}`:'Подобрать письмо';
+ if(fireSeat.phase==='seated'&&!overview&&!isPaused()){$('interact').hidden=false;$('interact').querySelector('span')!.textContent='Послушать у костра · Ной';}
+ const surface=sample(player.up);const {x,z}=coordinates(player.up);let name=surface.region,sub=surface.biome==='mountain'?'Ищи пологие склоны и проходы между вершинами':surface.biome==='hill'?'Выше луга — дальше горизонт':'За каждым холмом — что-то новое';
  if(player.up.distanceTo(CAMP.up)*RADIUS<8){name=CAMP.name;sub='Кто-то тоже смотрел на далёкие миры.';}
- else if(player.up.y<.3){name='Дальняя сторона';sub='Здесь особенно близко к звёздам';}
- else if(z>16&&x>0){name='Озеро Тихое';sub='Остановись. Послушай воду.';}
+ else if(surface.wet){name=surface.region;sub='Река несёт тебя дальше · выходи у пологого берега';}
+ else if(player.up.y>.45&&Math.hypot(x-12,z-30)<18){name='Озеро Тихое';sub='Остановись. Послушай воду.';}
  else if(sample(player.up).bridge){name='Старый мост';sub='Два берега одной истории';}
- else if(z< -21&&z> -32&&x>3&&x<16){name='Каменистый брод';sub='Здесь реку можно перейти пешком';}
- else if(Math.hypot(x+7,z+14)<13){name='Почтовая поляна';sub='Каждое письмо кого-то ждёт';}
- else if(Math.abs(x)<10&&Math.abs(z)<10){name='Луговая тропа';sub='Всё большое начинается с малого';}
- const place=LANDMARKS.find(p=>p.up.distanceTo(player.up)*RADIUS<9);if(place){name=place.name;sub=place.id==='lookout'?(atObservatoryNight(solarSeconds)?'Ночь открывает соседние миры.':'Здесь ждут наступления ночи.'):'Остановись и осмотрись · E у таблички';}
- $('location-name').textContent=name;$('location-sub').textContent=sub;
+ else if(player.up.y>.45&&z< -21&&z> -32&&x>3&&x<16){name='Каменистый брод';sub='Сухие камни соединяют берега';}
+ else if(player.up.y>.45&&Math.hypot(x+7,z+14)<13){name='Почтовая поляна';sub='Каждое письмо кого-то ждёт';}
+ else if(player.up.y>.45&&Math.abs(x)<10&&Math.abs(z)<10){name='Луговая тропа';sub='Всё большое начинается с малого';}
+ const place=ALL_LANDMARKS.find(p=>p.up.distanceTo(player.up)*RADIUS<9);if(place){name=place.name;sub=place.id==='lookout'?(atObservatoryNight(solarSeconds)?'Ночь открывает соседние миры.':'Здесь ждут наступления ночи.'):'Остановись и осмотрись · E рядом с находкой';}
+ if(!overview&&!isPaused()&&name!==announcedLocation){
+  announcedLocation=name;locationVisibleUntil=performance.now()+4500;
+  $('location-name').textContent=name;$('location-sub').textContent=sub;
+ }
+ locationBanner.classList.toggle('location-visible',!overview&&!isPaused()&&performance.now()<locationVisibleUntil);
+ journeyUI.update(journeyEntries(journeySnapshot()));
+
 }
 let uiTick=0;
+const welcomeSpinOrigin=solarState(solarSeconds).spinAngle,welcomeAxis=new T.Vector3(0,0,1);
 camera.position.set(100,155,143);camera.lookAt(cameraLook);
 renderer.setAnimationLoop((ms:number)=>{
  if(document.hidden){last=0;return;}
  if(started&&(worldSaveTick+=last?Math.min((ms-last)/1000,.05):0)>=1){worldSaveTick=0;saveWorld();}
  const cpuStart=performance.now();const frameMs=last?ms-last:1000/60;
  const dt=Math.min(frameMs/1000,.05);last=ms;time+=dt;
- if(!timeStopped&&started&&!dialogs.some(d=>d.open&&d.id!=='system-map-dialog'))solarSeconds+=dt*timeSpeed;
+ if(!timeStopped&&!dialogs.some(d=>d.open&&d.id!=='system-map-dialog'))solarSeconds+=dt*timeSpeed;
  const paused=isPaused()||overview||!started;
  $('touch-controls').hidden=!touchMode||paused;
  $('mobile-menu').hidden=!touchMode||!started||dialogs.some(d=>d.open);
  $('rotate-hint').hidden=!touchMode||!started||isPaused();
- if(isPaused()||!started){touch.reset();jumpQueued=false;}
+ if(isPaused()||!started){touch.reset();jumpQueued=false;modeQueued=false;}
  if(!paused)wildlifeTime+=dt;
  if((wildlifeTick+=dt)>=.05){wildlife.update(wildlifeTime,paused?0:wildlifeTick,player.up,solar.state.sunDirection);wildlifeTick=0;}
- if(!paused){accumulator+=dt;while(accumulator>=1/60){
+ if(!paused){accumulator+=dt;while(accumulator>=1/60&&!isPaused()){
   const finger=touch.read();
-  const input={forward:finger.forward+Number(keys.has('KeyW')||keys.has('ArrowUp'))-Number(keys.has('KeyS')||keys.has('ArrowDown')),right:finger.right+Number(keys.has('KeyD')||keys.has('ArrowRight'))-Number(keys.has('KeyA')||keys.has('ArrowLeft')),run:finger.run||keys.has('ShiftLeft')||keys.has('ShiftRight'),jump:jumpQueued};
-  const old=player.up.clone();step(player,input,1/60,world.obstacles);jumpQueued=false;
+  const input={forward:finger.forward+Number(keys.has('KeyW')||keys.has('ArrowUp'))-Number(keys.has('KeyS')||keys.has('ArrowDown')),right:finger.right+Number(keys.has('KeyD')||keys.has('ArrowRight'))-Number(keys.has('KeyA')||keys.has('ArrowLeft')),run:finger.run||keys.has('ShiftLeft')||keys.has('ShiftRight'),jump:jumpQueued,toggleMode:modeQueued};
+  const old=player.up.clone(),oldMode=player.mode;
+  if(input.forward||input.right||input.jump||input.toggleMode){leaveFireSeat(fireSeat);leaveFireSeat(trailSeat);}
+  if(lookoutLift>0&&trailSeat.phase==='idle'){player.moving=false;}else if(trailSeat.phase!=='idle'&&guestNavigation){
+   const rest=world.wilderness.places.find(p=>p.id===restingPlace)!;const result=advanceFireSeat(trailSeat,player,guestNavigation,world.obstacles,1/60,true,rest.restUp!);if(result==='arrived')toast(rest.climbHeight?'Поднимаемся на площадку · движение или Esc — спуститься':'Можно отдохнуть · движение или Esc — встать');if(result==='cancelled')toast('Не удалось подойти к бревну. Попробуй с другой стороны.');
+  }else if(fireSeat.phase!=='idle'&&guestNavigation){
+   const result=advanceFireSeat(fireSeat,player,guestNavigation,world.obstacles,1/60,noahIsTelling(solarSeconds,residentState('noah')));
+   if(result==='arrived'){toast('Ты сидишь у костра · WASD или прыжок — встать');adventureUI.fireside();}
+   else if(result==='cancelled')toast('Посиделки закончились или к месту нет свободного подхода.');
+  }else step(player,input,1/60,world.obstacles);
+  if(oldMode!==player.mode){shoreTick=1;toast(player.mode==='swim'?(touchMode?'Плывёшь · у берега появится «На берег»':'Плывёшь · F у пологого берега — выйти на сушу'):'Ты на берегу · можно идти дальше');}jumpQueued=false;modeQueued=false;
   facing.applyQuaternion(new T.Quaternion().setFromUnitVectors(old,player.up)).projectOnPlane(player.up).normalize();
-  if(player.moving){const direction=player.forward.clone().multiplyScalar(input.forward).addScaledVector(new T.Vector3().crossVectors(player.forward,player.up),input.right).normalize();facing.lerp(direction,.18).normalize();}
+  if(player.moving){const direction=player.up.clone().sub(old).projectOnPlane(player.up).normalize();facing.lerp(direction,.18).normalize();}
   accumulator-=1/60;
  }}else accumulator=0;
- pose(hero.root,player.up,facing,sample(player.up).height+player.jumpHeight);hero.animate(time,!paused&&player.moving);
+ if(fireSeat.phase==='seated')facing.copy(FIRE_UP).projectOnPlane(player.up).normalize();
+ const liftTarget=trailSeat.phase==='seated'?(world.wilderness.places.find(p=>p.id===restingPlace)?.climbHeight??0):0;
+ if(!paused)lookoutLift+=T.MathUtils.clamp(liftTarget-lookoutLift,-dt*1.8,dt*1.8);
+ if(lookoutLift>0)player.position.copy(player.up).multiplyScalar(player.groundHeight+player.jumpHeight+lookoutLift);
+ if(trailSeat.phase==='seated')facing.copy(world.wilderness.places.find(p=>p.id===restingPlace)!.restFacing).projectOnPlane(player.up).normalize();
+ pose(hero.root,player.up,facing,player.position.length());hero.animate(time,!paused&&player.moving,player.mode==='swim',fireSeat.phase==='seated'||(trailSeat.phase==='seated'&&restingPlace!=='azure-beacon')?'sit':undefined);
+ world.frontier.update(frontierUI.state.wind==='repaired'||frontierUI.state.wind==='complete',time);
+ if((shoreTick+=dt)>=.2){shoreTick=0;shoreAction=paused?null:movementAction(player,world.obstacles);}
+ updateMovementControl(paused);
+ const listeningToNoah=$<HTMLDialogElement>('conversation').open&&$('speaker').textContent==='Ной'&&noahIsTelling(solarSeconds,residentState('noah'));
+ const residentPaused=!started||dialogs.some(d=>d.open&&d.id!=='system-map-dialog'&&!(d.id==='conversation'&&listeningToNoah));
+ if(!residentPaused)residentAnimationTime+=dt;
+ fireBurning=advanceResidents(residentStates,residentNavigation,{dt,seconds:solarSeconds,paused:residentPaused,player:player.up,party:adventureUI.party()});
  for(const r of world.residents){
-  if(r.id==='ada'&&!paused){const night=atObservatoryNight(solarSeconds);
-   const destination=night?ADA_OBSERVATORY_UP:r.home;
-   if(night!==adaAtObservatory&&canRelocateResident(r.up,destination,player.up,camera)){adaAtObservatory=night;r.up.copy(destination);}
-
-  }
-  const walking=!paused&&!(r.id==='ada'&&adaAtObservatory)&&Math.sin(time*.35+r.phase)>.15&&r.up.distanceTo(player.up)*RADIUS>3.5;
-  if(walking){const target=normalAt(r.x+Math.sin(time*.15+r.phase)*1.3,r.z+Math.cos(time*.15+r.phase)*1.2);if(sample(target).waterDepth<.1&&!world.obstacles.some(o=>o.up.distanceTo(target)*RADIUS<o.radius+.4)){const dir=target.clone().sub(r.up).projectOnPlane(r.up);r.up.lerp(target,.015).normalize();if(dir.lengthSq()>.00000001)pose(r.model.root,r.up,dir.normalize(),sample(r.up).height);}}
-  if(!walking){const dir=player.up.clone().sub(r.up).projectOnPlane(r.up);pose(r.model.root,r.up,dir.lengthSq()>.0001?dir.normalize():new T.Vector3(0,0,-1).projectOnPlane(r.up).normalize(),sample(r.up).height);}
-  r.model.animate(time+r.phase,walking);
+  const state=residentState(r.id);
+  r.up.copy(state.up);r.model.root.visible=!state.inside;
+  const heading=state.heading.clone();
+  if(state.activity==='sit'||state.activity==='tell')heading.copy(FIRE_UP).projectOnPlane(state.up).normalize();
+  else if(state.activity==='water'||state.activity==='inspect')heading.set(0,0,-1).projectOnPlane(state.up).normalize();
+  else if(state.activity==='observe')heading.copy(LANDMARKS[2].up).projectOnPlane(state.up).normalize();
+  else if($<HTMLDialogElement>('conversation').open&&state.up.distanceTo(player.up)*RADIUS<3.5)heading.copy(player.up).projectOnPlane(state.up).normalize();
+  const visualUp=state.up.clone();
+  if(state.transition!==0)visualUp.lerp(HOMES[r.id].door,Math.min(1,Math.abs(state.transition)/1.5)).normalize();
+  pose(r.model.root,visualUp,heading.lengthSq()>.001?heading:state.heading,sample(visualUp).height);
+  r.model.animate(residentAnimationTime+r.phase,state.moving||state.transition!==0,false,state.activity);
  }
- world.adventures.update(adventureUI.state,solarSeconds,time,player.up,adventureUI.party());
+ for(const door of world.doors){const r=residentState(door.id as PersonId),angle=r.transition!==0||r.visit>0?-1.3:0;door.swing.rotation.y+=(angle-door.swing.rotation.y)*Math.min(1,dt*7);}
+ world.hearth.update(time,fireBurning);
+ world.adventures.update(adventureUI.state,solarSeconds,time,player.up,adventureUI.party(),homeLit('noah',solarSeconds,residentState('noah').inside));
  music.setDucked($<HTMLDialogElement>('conversation').open);
  music.update(frameMs/1000);
  renderMusicTransition();
  worldAudio.setActive(started&&!overview);
  worldAudio.update(soundscape.update(dt,{up:player.up,forward:player.forward,sun:solar.state.sunDirection,
-  active:audioOn&&started&&!overview,walking:!paused,moving:player.moving,grounded:player.grounded,
+  active:audioOn&&started&&!overview,walking:!paused,moving:player.moving,grounded:player.grounded&&player.mode==='walk',
   bell:adventureUI.state.bell==='complete'?gardenBell:adventureUI.state.bell==='searching'&&adventureUI.state.tracks===2?hiddenBell:null,
-  bellInterval:adventureUI.state.bell==='complete'?35:5}));
+  bellInterval:adventureUI.state.bell==='complete'?35:5,fire:fireBurning?FIRE_UP:null}));
  for(const l of world.letters){l.envelope.position.y=.95+Math.sin(time*2+l.x)*.12;l.envelope.rotation.y=time*.6;l.ring.scale.setScalar(1+Math.sin(time*2)*.08);}
  world.waveTime.value=time;world.water.material.opacity=.87+Math.sin(time*.6)*.025;if((cloudTick+=dt)>=1/20){world.updateClouds(time,solar.state.sunDirection);cloudTick=0;}
  if(trackingPlanet&&!paused){const aim=planetAim(observedPlanet,solarSeconds,player.up,player.forward);
@@ -400,12 +499,14 @@ renderer.setAnimationLoop((ms:number)=>{
  if(overview){
   desiredCamera.copy(globePosition(planetOrbit.orientation,planetOrbit.distance));desiredUp.set(0,1,0).applyQuaternion(planetOrbit.orientation);look.set(0,0,0);
  }else if(!started){
-  desiredCamera.set(100+Math.sin(time*.035)*12,155,143);desiredUp.set(0,1,0);look.set(-27,0,0);
+  const rotation=welcomeSpinOrigin-solarState(solarSeconds).spinAngle;
+  desiredCamera.set(100,155,143).applyAxisAngle(welcomeAxis,rotation);desiredUp.set(0,1,0).applyAxisAngle(welcomeAxis,rotation);look.set(-27,0,0).applyAxisAngle(welcomeAxis,rotation);
  }else{
-  look.copy(player.position).addScaledVector(player.up,1.25);
-  desiredCamera.copy(player.position).addScaledVector(player.forward,-distance*Math.cos(elevation)).addScaledVector(player.up,distance*Math.sin(elevation)+1.5);
+  const swimming=player.mode==='swim';
+  look.copy(player.position).addScaledVector(player.up,swimming?.45:1.25);
+  desiredCamera.copy(player.position).addScaledVector(player.forward,-distance*Math.cos(elevation)).addScaledVector(player.up,distance*Math.sin(elevation)+(swimming?.65:1.5));
   // Keep the orbit camera above hills even at its lowest angle.
-  const n=desiredCamera.clone().normalize();const min=sample(n).height+2;
+  const n=desiredCamera.clone().normalize(),surface=sample(n);const min=Math.max(surface.height,surface.wet?surface.waterLevel:0)+1.5;
   if(desiredCamera.length()<min)desiredCamera.copy(n).multiplyScalar(min);
   look.copy(desiredCamera).addScaledVector(player.forward,distance*Math.cos(elevation)).addScaledVector(player.up,-distance*Math.sin(elevation));
   desiredUp.copy(player.up);
@@ -431,17 +532,18 @@ renderer.setAnimationLoop((ms:number)=>{
  if(!campMarker.hidden){campMarker.style.left=`${(campPoint.x*.5+.5)*innerWidth}px`;campMarker.style.top=`${(-campPoint.y*.5+.5)*innerHeight}px`;campMarker.textContent=`⌂ ${campFound?CAMP.name:'Одинокая палатка'} · ${Math.round(player.up.angleTo(CAMP.up)*RADIUS)} м`;}
 
  }
+ for(const {p,el} of homeMarkers){const up=HOMES[p.id].up,position=up.clone().multiplyScalar(sample(up).height+4),point=position.clone().project(camera);el.hidden=!started||!overview||point.z>1||hiddenByPlanet(camera.position,new T.Sphere(position,1));if(!el.hidden){el.style.left=`${(point.x*.5+.5)*innerWidth}px`;el.style.top=`${(-point.y*.5+.5)*innerHeight}px`;el.textContent=`⌂ ${p.id==='noah'?'Повозка Ноя':'Дом · '+p.name}${residentState(p.id).inside?' · дома':''}`;}}
  // Screen-space names follow the same camera frame as the rendered residents.
  for(const {r,el} of nameTags){
   const distanceTo=r.up.distanceTo(player.up)*RADIUS;
   const point=r.up.clone().multiplyScalar(sample(r.up).height+2.8).project(camera);
-  el.hidden=!started||overview||isPaused()||distanceTo>24||point.z>1||Math.abs(point.x)>1||Math.abs(point.y)>1;
-  if(!el.hidden){el.style.left=`${(point.x*.5+.5)*innerWidth}px`;el.style.top=`${(-point.y*.5+.5)*innerHeight}px`;el.textContent=(r.id==='mira'&&story.phase!=='complete'?'◇ ':'')+r.name;}
+  el.hidden=!started||residentState(r.id).inside||isPaused()||(!overview&&distanceTo>24)||hiddenByPlanet(camera.position,new T.Sphere(r.up.clone().multiplyScalar(sample(r.up).height+2),1))||point.z>1||Math.abs(point.x)>1||Math.abs(point.y)>1;
+  if(!el.hidden){el.style.left=`${(point.x*.5+.5)*innerWidth}px`;el.style.top=`${(-point.y*.5+.5)*innerHeight}px`;el.textContent=(r.id==='mira'&&story.phase!=='complete'?'◇ ':'')+r.name+' · '+ACTIVITY_LABEL[residentState(r.id).activity];}
  }
  lockHint.hidden=touchMode||!started||overview||isPaused()||document.pointerLockElement===canvas||softMouse;
  skySystem.followCamera(camera,overview||!started);
- if((skyTick+=dt)>=.05){skyTick=0;world.night.update(time,solar.state.sunDirection);if($<HTMLDialogElement>('system-map-dialog').open)systemMap.update(solarSeconds);neighbors.update(solarSeconds);solar=skySystem.update(solarSeconds,camera,player.up,overview||!started);
- const hours=((solarSeconds/DAY_SECONDS*24)%24+24)%24;
+ if((skyTick+=dt)>=.05){skyTick=0;world.night.update(time,solar.state.sunDirection,Object.fromEntries(residentStates.map(r=>[r.id,homeLit(r.id,solarSeconds,r.inside)])));if($<HTMLDialogElement>('system-map-dialog').open)systemMap.update(solarSeconds);neighbors.update(solarSeconds);solar=skySystem.update(solarSeconds,camera,player.up,overview||!started);
+ const hours=localHours(solarSeconds,player.up);
  $('time-clock').textContent=`${Math.floor(hours).toString().padStart(2,'0')}:${Math.floor(hours%1*60).toString().padStart(2,'0')}`;
  $('time-phase').textContent=localPhase(solarSeconds,player.up);
 

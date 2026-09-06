@@ -1,9 +1,10 @@
+import {WATER_SOUND_SOURCES} from './hydrology.ts';
 import {Vector3} from 'three';
 import {normalAt,coordinates,sample,riverX,RADIUS} from './terrain.ts';
 
 export type Sound={id:string;gain:number;pan:number;rate?:number};
 export type SoundMix={loops:Sound[];shots:Sound[]};
-export type SoundFrame={up:Vector3;forward:Vector3;sun:Vector3;active:boolean;walking:boolean;moving:boolean;grounded:boolean;bell:Vector3|null;bellInterval?:number};
+export type SoundFrame={up:Vector3;forward:Vector3;sun:Vector3;active:boolean;walking:boolean;moving:boolean;grounded:boolean;bell:Vector3|null;bellInterval?:number;fire?:Vector3|null};
 const clamp=(v:number)=>Math.max(0,Math.min(1,v));
 const distance=(a:Vector3,b:Vector3)=>Math.acos(Math.max(-1,Math.min(1,a.dot(b))))*RADIUS;
 
@@ -15,17 +16,16 @@ export function spatialMix(up:Vector3,forward:Vector3,source:Vector3,range:numbe
  return {gain:t*t*(3-2*t),pan:Math.max(-1,Math.min(1,direction.dot(right)))};
 }
 export function footSurface(up:Vector3):'grass'|'stone'|'wood'{
- if(sample(up).bridge)return 'wood';
+ const surface=sample(up);
+ if(surface.bridge)return 'wood';
+ if(surface.ford||surface.biome==='mountain')return 'stone';
  const {x,z}=coordinates(up);
  if(up.y>.45&&Math.abs(z+26)<2&&Math.abs(x-riverX(z))<4)return 'stone';
  if(distance(up,normalAt(44,48))<4)return 'stone';
  return 'grass';
 }
 
-const waterSources=[
- ...Array.from({length:34},(_,i)=>{const z=-37+i*2;return {up:normalAt(riverX(z),z),gain:.3};}),
- ...Array.from({length:32},(_,i)=>{const a=i*Math.PI/16;return {up:normalAt(12+12.32*Math.cos(a),30+11*Math.sin(a)),gain:.15};}),
-];
+const waterSources=WATER_SOUND_SOURCES;
 
 /** Pure scheduler: game time acceleration does not accelerate recordings or calls. */
 export class Soundscape {
@@ -53,6 +53,7 @@ export class Soundscape {
   if(!f.active){this.travelled=0;return {loops:[],shots};}
   let water={gain:0,pan:0};
   for(const source of waterSources){
+   if(source.up.distanceToSquared(f.up)*RADIUS*RADIUS>18*18)continue;
    const mix=spatialMix(f.up,f.forward,source.up,18);mix.gain*=source.gain;
    if(mix.gain>water.gain)water=mix;
   }
@@ -72,7 +73,8 @@ export class Soundscape {
    else if((this.insectIn-=dt)<=0){this.insectLeft=this.between(6,11);this.insectIn=this.between(20,40);}
   }
   const loops=[{id:'wind',gain:.055,pan:0},{id:'river',...water},{id:'leaves',...leaves},
-   {id:'crickets',gain:this.insectLeft>0?.12*night:0,pan:-.2}];
+   {id:'crickets',gain:this.insectLeft>0?.12*night:0,pan:-.2},
+   {id:'fire',...(f.fire?spatialMix(f.up,f.forward,f.fire,12):{gain:0,pan:0})}];
 
   if(f.walking&&sunlight>.1&&birdTrees.length&&(this.birdIn-=dt)<=0){
    this.birdIn=this.between(18,42);
@@ -85,7 +87,7 @@ export class Soundscape {
     this.bellIn=this.between((f.bellInterval??5)*.8,(f.bellInterval??5)*1.4);shots.push({id:'bell',gain:.3*mix.gain,pan:mix.pan});
    }
   }
-  if(f.walking&&f.moving&&f.grounded&&moved>0&&moved<1.5){
+  if(f.walking&&f.moving&&f.grounded&&moved>0&&moved<1.5&&!sample(f.up).wet){
    this.travelled+=moved;
    const stride=moved/Math.max(dt,.001)>3.5?1.6:1.2;
    if(this.travelled>=stride){

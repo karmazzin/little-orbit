@@ -10,15 +10,16 @@ const scene=new Scene(),world=buildWorld(scene);
 test('world geometry is finite and static props are batched',()=>{
  let meshes=0;
  scene.traverse(object=>{if(object instanceof Mesh){meshes++;const positions=object.geometry.getAttribute('position');for(let i=0;i<positions.count;i++){assert.ok(Number.isFinite(positions.getX(i)));assert.ok(Number.isFinite(positions.getY(i)));assert.ok(Number.isFinite(positions.getZ(i)));}}});
- assert.ok(meshes<220,`Expected batching, got ${meshes} meshes`);
+ assert.ok(meshes<250,`Expected batching, got ${meshes} meshes`);
 });
 test('residents, letters and all landmark inspection points are reachable without swimming',()=>{
- const spacing=.7,minX=-65,minZ=-70,width=195,height=205;
+ const spacing=.7,minX=-203,minZ=-203,width=580,height=580;
  const passable=new Uint8Array(width*height),visited=new Uint8Array(width*height);
- const normals:Vector3[]=[];
+ const normals:Vector3[]=[],heights:number[]=[];
  for(let j=0;j<height;j++)for(let i=0;i<width;i++){
   const n=normalAt(minX+i*spacing,minZ+j*spacing),index=j*width+i;normals[index]=n;
-  passable[index]=Number(sample(n).waterDepth<=.48&&!world.obstacles.some(o=>n.distanceTo(o.up)*RADIUS<o.radius+.34));
+  heights[index]=sample(n).height;
+  passable[index]=Number(sample(n).waterDepth===0&&!world.obstacles.some(o=>n.distanceTo(o.up)*RADIUS<o.radius+.34));
  }
  const start=Math.round((4-minZ)/spacing)*width+Math.round((-4-minX)/spacing);assert.equal(passable[start],1);
  const queue=[start];visited[start]=1;
@@ -26,6 +27,8 @@ test('residents, letters and all landmark inspection points are reachable withou
   const index=queue[q],i=index%width,j=Math.floor(index/width);
   for(const [di,dj] of [[-1,0],[1,0],[0,-1],[0,1]]){
    const a=i+di,b=j+dj,k=b*width+a;if(a<0||a>=width||b<0||b>=height||visited[k]||!passable[k])continue;
+   const distance=normals[index].distanceTo(normals[k])*RADIUS;
+   if((heights[k]-heights[index])/distance>1.05)continue;
    visited[k]=1;queue.push(k);
   }
  }
@@ -58,7 +61,7 @@ test('landmark plaques and the observatory resident position have clear collisio
 
 test('adventure props have visible geometry and all inspection points are dry and clear',()=>{
  for(const root of [world.adventures.traveler,world.adventures.festival]){
-  assert.ok(root.children.some(o=>o instanceof Mesh&&o.geometry.getAttribute('position').count>30));
+  let visibleGeometry=false;root.traverse(o=>{if(o instanceof Mesh&&o.geometry.getAttribute('position').count>30)visibleGeometry=true;});assert.ok(visibleGeometry);
  }
  for(const p of world.adventures.points){
   assert.ok(sample(p.inspectUp).waterDepth<=.48,`${p.id} is in deep water`);

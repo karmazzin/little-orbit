@@ -18,3 +18,8 @@ test('tracking updates camera aim as a planet moves and ends below the horizon',
  const look=next.forward.clone().multiplyScalar(Math.cos(next.elevation)).addScaledVector(up,-Math.sin(next.elevation));assert.ok(look.distanceTo(neighborDirection(1,t+.2))<.001);assert.ok(Math.abs(aim.elevation-next.elevation)>1e-6||aim.forward.distanceTo(next.forward)>1e-6);checked=true;break;}
  assert.ok(checked);assert.ok(Array.from({length:36},(_,i)=>planetAim(1,i*10,up,forward)).some(p=>p===null));
 });
+test('visible neighbours use lightweight coloured relief and keep their sky positions',async()=>{
+ const T=await import('three');const {createNeighbors,NEIGHBORS,neighborSkyPosition}=await import('../src/planets.ts');
+ const scene=new T.Scene(),neighbors=createNeighbors(scene);neighbors.update(1234);
+ NEIGHBORS.forEach((p,i)=>{const body=scene.getObjectByName(p.name)!;assert.ok(body);assert.ok(body.position.distanceTo(neighborSkyPosition(i,1234))<1e-8);const mesh=body.getObjectByName('terrain') as import('three').Mesh;assert.ok(mesh.geometry.getAttribute('color'));assert.ok(mesh.geometry.getAttribute('position').count<3000);});
+});

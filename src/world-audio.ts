@@ -1,7 +1,8 @@
+import {createFireBuffer} from './hearth.ts';
 import type {Sound,SoundMix} from './soundscape.ts';
 
 type Voice={source:AudioBufferSourceNode;gain:GainNode;pan:StereoPannerNode};
-const LOOPS=new Set(['wind','river','leaves','crickets']);
+const LOOPS=new Set(['wind','river','leaves','crickets','fire']);
 const SHORTS=['bell',...Array.from({length:3},(_,i)=>`bird-${i+1}`),
  ...['grass','stone','wood'].flatMap(s=>Array.from({length:3},(_,i)=>`step-${s}-${i+1}`))];
 const clamp=(v:number)=>Math.max(0,Math.min(1,v));
@@ -68,7 +69,7 @@ export class WorldAudio {
  }
  private load(id:string):Promise<AudioBuffer|null>{
   const existing=this.loading.get(id);if(existing)return existing;
-  const pending=this.fetchSample(id,this.context!).then(buffer=>{this.buffers.set(id,buffer);return buffer;}).catch(()=>{
+  const pending=(id==='fire'?Promise.resolve(createFireBuffer(this.context!)):this.fetchSample(id,this.context!)).then(buffer=>{this.buffers.set(id,buffer);return buffer;}).catch(()=>{
    this.failures.add(id);this.onError(id);return null;
   });
   this.loading.set(id,pending);return pending;

@@ -1,3 +1,4 @@
+import {createAtlasStar} from './system-star.ts';
 import {createAtmosphere} from './atmosphere.ts';
 import * as T from 'three';
 import {resizeShadow} from './shadows.ts';
@@ -12,6 +13,13 @@ export function solarState(seconds:number){
  const spinAngle=orbitAngle+Math.PI*1.5-seconds/DAY_SECONDS*TAU;
  const sunDirection=planetPosition.clone().negate().normalize().applyAxisAngle(Z,-spinAngle);
  return {planetPosition,sunDirection,spinAngle,orbitAngle};
+}
+/** Clock at the player's longitude; the poles use their stored meridian. */
+export function localHours(seconds:number,up:T.Vector3){return ((seconds/DAY_SECONDS*24+Math.atan2(up.x,up.y)*12/Math.PI)%24+24)%24;}
+export function secondsAtLocalHour(seconds:number,hour:number,up:T.Vector3){
+ const offset=Math.atan2(up.x,up.y)/TAU*DAY_SECONDS;
+ const result=Math.floor((seconds+offset)/DAY_SECONDS)*DAY_SECONDS+hour/24*DAY_SECONDS-offset;
+ return result<0?result+DAY_SECONDS:result;
 }
 export function localSky(sunDirection:T.Vector3,up:T.Vector3){
  const altitude=T.MathUtils.clamp(sunDirection.dot(up),-1,1);
@@ -35,10 +43,10 @@ export function createSky(scene:T.Scene,stars:T.Points<T.BufferGeometry,T.Points
  const fill=new T.HemisphereLight(0xb8dfff,0x324b60,.6);
  const sun=new T.DirectionalLight(0xffedcf,3);
  sun.castShadow=true;resizeShadow(sun,1024);
- Object.assign(sun.shadow.camera,{left:-76,right:76,top:76,bottom:-76,near:1,far:500});
+ Object.assign(sun.shadow.camera,{left:-90,right:90,top:90,bottom:-90,near:1,far:500});
  sun.shadow.camera.up.set(0,0,1);sun.position.copy(solarState(DAY_SECONDS*.43).sunDirection).multiplyScalar(220);
  sun.shadow.normalBias=.06;sun.shadow.bias=-.0001;scene.add(ambient,fill,sun);
- const disk=new T.Mesh(new T.SphereGeometry(10,24,16),new T.MeshBasicMaterial({color:0xffe7a0,fog:false,toneMapped:false}));scene.add(disk);
+ const disk=createAtlasStar(32);disk.scale.setScalar(10/12);scene.add(disk);
  const domeMat=new T.ShaderMaterial({side:T.BackSide,depthWrite:false,depthTest:false,toneMapped:false,
   uniforms:{zenith:{value:new T.Color()},horizon:{value:new T.Color()},up:{value:new T.Vector3(0,1,0)},sunDirection:{value:new T.Vector3()},warm:{value:0}},
   vertexShader:'varying vec3 vDirection; void main(){vDirection=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
@@ -56,7 +64,8 @@ export function createSky(scene:T.Scene,stars:T.Points<T.BufferGeometry,T.Points
   fill.intensity=space?.45:.36+sky.daylight*.66;
   fill.position.copy(up);fill.color.copy(sky.zenith).lerp(new T.Color(0xb8dfff),.45);
   disk.position.copy(state.sunDirection).multiplyScalar(560);
-  disk.material.color.set(space?0xffe7a0:sky.twilight>.3?0xff9354:0xfff1bd);
+  disk.material.uniforms.tint.value.set(space?0xffffff:sky.twilight>.3?0xffb078:0xffffff);
+  disk.rotation.z=seconds*.008-state.spinAngle;
   stars.material.opacity=space?.9:sky.stars*.95;stars.rotation.z=-state.spinAngle;
   dome.visible=!space;dome.position.copy(camera.position);
   domeMat.uniforms.zenith.value.copy(sky.zenith);domeMat.uniforms.horizon.value.copy(sky.horizon);domeMat.uniforms.up.value.copy(up);domeMat.uniforms.sunDirection.value.copy(state.sunDirection);domeMat.uniforms.warm.value=sky.twilight;
