@@ -7,6 +7,9 @@ try{
  routeOpen=restoreTravel(gameStorage.getItem(TRAVEL_KEY)).open;
 }catch{}
 const planet=selectPlayablePlanet(location.search,routeOpen,import.meta.env.DEV);
+// Do not suspend module evaluation: production world chunks import shared exports
+// from this entry chunk, so top-level await would deadlock their initialization.
+async function start(){
 try{
  await planet.load();
  if(import.meta.env.DEV){const {showPlanetPreview}=await import('./runtime/planet-preview.ts');showPlanetPreview(planet.id,planetPreview);}
@@ -14,3 +17,5 @@ try{
  console.error(error);const loading=document.getElementById('loading');
  if(loading){loading.hidden=false;loading.textContent='Не удалось загрузить мир. Обнови страницу, чтобы попробовать снова.';}
 }
+}
+void start();
