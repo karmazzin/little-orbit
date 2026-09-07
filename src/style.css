@@ -122,3 +122,5 @@ body:not(.playing) .vignette{background:linear-gradient(90deg,rgba(10,21,26,.84)
 @media(max-width:600px){#system-map-dialog{padding:22px 16px}.system-tools{gap:5px}.system-tools button{padding:8px}.system-viewport{height:45vh}}
 
 body:not(.playing) #observe-planets{display:none}
+
+.journal-postcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:16px;padding:8px 0 16px}.journal-postcards .postcard{margin:0}.journal-postcards .postcard strong{font-size:14px}.journal-postcards .postcard small{font-size:10px}

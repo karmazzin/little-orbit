@@ -1,6 +1,6 @@
 import {Vector3} from 'three';
-import {sample} from './terrain.ts';
-import {createPlayer,type Player} from './simulation.ts';
+import {sample} from './worlds/khvoya/terrain.ts';
+import {createPlayer,type Player,type MovementEnvironment} from './simulation.ts';
 
 export const WORLD_SAVE_KEY='little-orbit-world-v1';
 export type WorldState={player:Player;solarSeconds:number;timeSpeed:number;timeStopped:boolean;distance:number;elevation:number};
@@ -16,7 +16,8 @@ function vector(value:unknown){
  return Math.abs(v.length()-1)<.001?v.normalize():null;
 }
 /** Invalid or newer snapshots leave the normal new-game defaults intact. */
-export function restoreWorld(raw:string|null):WorldState|null{
+export function restoreWorld(raw:string|null,environment?:MovementEnvironment):WorldState|null{
+ const sampleSurface=environment?.sample??sample;
  try{
   if(!raw)return null;
   const data=JSON.parse(raw);
@@ -25,9 +26,9 @@ export function restoreWorld(raw:string|null):WorldState|null{
   if(!p||(data.version===2&&!['walk','swim'].includes(p.mode)))return null;
   const up=vector(p.up),forward=vector(p.forward);
   if(!up||!forward||Math.abs(up.dot(forward))>.001||!between(p.groundHeight,1,1000)||!between(p.jumpHeight,0,1000)||!between(p.verticalSpeed,-1000,1000)||typeof p.grounded!=='boolean'||!between(p.coyoteTime,0,.1)||!between(p.jumpBuffer,0,.12))return null;
-  const player=createPlayer(up);
+  const player=createPlayer(up,environment);
   player.forward.copy(forward).projectOnPlane(up).normalize();
-  const surface=sample(up);
+  const surface=sampleSurface(up);
   player.mode=surface.waterDepth>0?'swim':'walk';
   // Current snapshots preserve an in-progress fall; old terrain altitude is obsolete.
   if(data.version===2&&p.mode==='walk'&&!p.grounded&&p.groundHeight+p.jumpHeight>surface.waterLevel)player.mode='walk';

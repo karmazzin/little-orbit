@@ -1,0 +1,50 @@
+[
+  {
+    "scenario": "khvoya desktop",
+    "pass": true,
+    "errors": [],
+    "checks": [
+      "start",
+      "journal + Escape",
+      "M + Escape",
+      "K + Escape",
+      "N no modal",
+      "W movement saved",
+      "reload snapshot retained"
+    ]
+  },
+  {
+    "scenario": "amber desktop",
+    "pass": true,
+    "errors": [],
+    "checks": [
+      "start",
+      "journal + Escape",
+      "M + Escape",
+      "K + Escape",
+      "N no modal",
+      "W movement saved",
+      "reload snapshot retained"
+    ]
+  },
+  {
+    "scenario": "bidirectional travel desktop",
+    "pass": true,
+    "errors": []
+  },
+  {
+    "scenario": "bidirectional travel mobile",
+    "pass": true,
+    "errors": []
+  },
+  {
+    "scenario": "storage failure khvoya",
+    "pass": true,
+    "errors": []
+  },
+  {
+    "scenario": "storage failure amber",
+    "pass": true,
+    "errors": []
+  }
+]

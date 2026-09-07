@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Shared runtime controls regression</title>
+<canvas id="canvas" width="800" height="600"></canvas>
+<div id="overview-label" hidden></div><button id="interact">Interact</button>
+<div id="touch-stick"><div id="touch-knob"></div></div>
+<input id="input"><textarea id="textarea"></textarea><select id="select"><option>Option</option></select><button id="button">Button</button>
+<pre id="result">Running…</pre>
+<script type="module">
+import * as T from 'three';
+import {createGameControls} from '../src/runtime/controls.ts';
+import {createSessionState,clearMovementInput} from '../src/runtime/session.ts';
+const result=document.getElementById('result'),canvas=document.getElementById('canvas');
+const session=createSessionState(),planetOrbit={orientation:new T.Quaternion(),distance:220};
+const freshPlayer=()=>({up:new T.Vector3(0,1,0),forward:new T.Vector3(0,0,1)});
+let player=freshPlayer(),paused=false,visibilityResets=0,toasts=0;
+const calls={movement:0,postcard:0,systemMap:0,observe:0,interact:0,journal:0,debug:0,escape:0};
+const actions=Object.fromEntries(Object.keys(calls).map(name=>[name,()=>{calls[name]++;}]));
+// Synthetic pointer events cannot acquire browser pointer capture or pointer lock.
+// Stub only these OS-facing APIs; all listeners, bubbling and DOM controls are real.
+canvas.requestPointerLock=()=>Promise.reject(new Error('Fixture fallback'));
+canvas.setPointerCapture=()=>{};
+const controls=createGameControls({session,canvas,camera:new T.PerspectiveCamera(50,4/3,.1,1000),player:()=>player,planetOrbit,radius:100,touchMode:false,isPaused:()=>paused,toast:()=>toasts++,cameraLook:()=>new T.Vector3(),actions,onVisibilityReset:()=>visibilityResets++});
+controls.bind();session.started=true;
+const checks=[];
+function check(value,label){if(!value)throw new Error(label);checks.push(label);}
+function key(code,target=window,extra={}){const e=new KeyboardEvent('keydown',{code,bubbles:true,cancelable:true,...extra});target.dispatchEvent(e);return e;}
+function move(x,y,target=canvas){target.dispatchEvent(new MouseEvent('mousemove',{bubbles:true,movementX:x,movementY:y}));}
+function wheel(deltaY){canvas.dispatchEvent(new WheelEvent('wheel',{deltaY,cancelable:true}));}
+function finger(type,id,x,y){canvas.dispatchEvent(new PointerEvent(type,{pointerType:'touch',pointerId:id,clientX:x,clientY:y,bubbles:true,cancelable:true}));}
+function queued(){session.keys.add('KeyW');session.jumpQueued=true;session.modeQueued=true;}
+function cleared(){return !session.keys.size&&!session.jumpQueued&&!session.modeQueued;}
+try{
+ for(const id of ['input','textarea','select']){key('KeyW',document.getElementById(id));key('KeyF',document.getElementById(id));key('Space',document.getElementById(id));}
+ check(cleared()&&calls.movement===0,'Text controls suppress game input');
+ for(const code of ['Space','Enter'])key(code,document.getElementById('button'));
+ check(cleared(),'Button Space and Enter remain native');
+ key('KeyF',window,{repeat:true});key('Space',window,{repeat:true});
+ check(calls.movement===0&&cleared(),'Repeated keydown does not queue actions');
+ key('KeyF');key('KeyP');check(calls.movement===1&&calls.postcard===1,'F changes movement and P opens postcard');
+ key('KeyM');check(session.overview&&!document.getElementById('overview-label').hidden,'M enters overview');
+ key('KeyF');key('KeyP');check(calls.movement===1&&calls.postcard===1,'Overview suppresses F and P');
+ controls.toggleOverview(false);check(!session.overview,'Overview returns to walking');
+ const space=key('Space');check(space.defaultPrevented&&session.jumpQueued,'Space prevents scrolling and queues jump');
+ clearMovementInput(session);key('KeyW');window.dispatchEvent(new KeyboardEvent('keyup',{code:'KeyW'}));check(!session.keys.size,'Keyup releases movement');
+ paused=true;key('KeyF');key('KeyW');check(calls.movement===1&&!session.keys.size,'Paused gameplay ignores movement');paused=false;
+ await controls.captureMouse();check(session.softMouse&&toasts===1,'Pointer-lock rejection enables soft mouse fallback');
+ const expected=player.forward.clone().applyAxisAngle(player.up,-.03);move(10,0);check(player.forward.distanceTo(expected)<1e-10,'Mouse horizontal sensitivity is 0.003 radians');
+ const before=player.forward.clone();move(10,0,document.body);check(player.forward.equals(before),'Soft mouse only follows canvas');
+ move(0,10000);check(session.elevation===1.15,'Mouse elevation upper clamp');move(0,-10000);check(session.elevation===-1.42,'Mouse elevation lower clamp');
+ const oldPlayer=player,oldForward=player.forward.clone();player=freshPlayer();move(10,0);check(oldPlayer.forward.equals(oldForward)&&player.forward.distanceTo(new T.Vector3(0,0,1))>.01,'Mouse reads replacement player after reset');
+ queued();window.dispatchEvent(new Event('blur'));check(cleared()&&!session.softMouse,'Blur clears queued actions and soft mouse');
+ queued();document.dispatchEvent(new Event('pointerlockchange'));check(cleared(),'Pointer lock change clears queued actions');
+ queued();document.dispatchEvent(new Event('visibilitychange'));check(cleared()&&visibilityResets===1,'Visibility reset clears actions and notifies owner');
+ session.distance=15;wheel(100);check(session.distance===16.5,'Wheel walk sensitivity');wheel(100000);check(session.distance===27,'Wheel walk upper clamp');wheel(-100000);check(session.distance===7,'Wheel walk lower clamp');
+ session.overview=true;planetOrbit.distance=220;wheel(100);check(planetOrbit.distance===228,'Wheel overview sensitivity');wheel(100000);check(planetOrbit.distance===360,'Wheel overview upper clamp');wheel(-100000);check(planetOrbit.distance===160,'Wheel overview lower clamp');
+ session.overview=false;session.distance=20;finger('pointerdown',1,100,100);finger('pointerdown',2,200,100);finger('pointermove',2,300,100);check(session.distance===10,'Two-finger pinch zooms by distance ratio');finger('pointercancel',1,100,100);finger('pointercancel',2,300,100);
+ const touchExpected=player.forward.clone().applyAxisAngle(player.up,-.04);finger('pointerdown',3,100,100);finger('pointermove',3,110,100);check(player.forward.distanceTo(touchExpected)<1e-10,'Touch look sensitivity is 0.004 radians');finger('pointercancel',3,110,100);
+ window.runtimeControlsResults={passed:checks.length,checks};result.textContent=`PASS: ${checks.length} checks\n${checks.join('\n')}`;
+}catch(error){window.runtimeControlsResults={passed:checks.length,error:String(error),checks};result.textContent=`FAIL: ${error}\n${checks.join('\n')}`;throw error;}
+</script></html>

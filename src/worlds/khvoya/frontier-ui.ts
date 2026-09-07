@@ -1,0 +1,28 @@
+import {FRONTIER_SAVE_KEY,restoreFrontier,reduceFrontier,windObjective,diaryObjective,type FrontierState,type FrontierAction} from './frontier.ts';
+export const WIND_END='Савва замолкает и прислушивается. С перевала доносится тонкий металлический звук. «Отец называл его голосом гор. В тумане не видно ни крыши, ни скал, а этот звук говорит: дом рядом. Спасибо. Теперь я снова могу уходить на дальний склон и знать, что приют найдут без меня». Он вешает у двери запасной моток шнура.';
+export const DIARY_END='Савва разглаживает страницы на столе. «Это дневник моей матери. Я думал, она записывала только погоду». На последнем листе: «Вернуться, когда отцветёт вереск. Савва уже научился отличать дождь от ветра по звуку крыши. Кажется, я могу наконец взять его с собой». Савва долго смотрит на эту строку. «Теперь понимаю, почему мне всё время хочется идти дальше. Это была наша недописанная прогулка». Он убирает дневник в сухой ящик и оставляет тебе копии страниц.';
+export const PAGES:Record<string,string>={
+ 'weather-ridge':'В футляре под деревом — лист с рисунками облаков. Между цифрами записано: «Сегодня Савва спросил, зачем я каждый день смотрю на одни горы. Ответила: чтобы заметить, когда они станут другими. Он долго смотрел рядом, а потом показал мне цветок, которого я не видела». На полях отмечена Станция сухих трав.',
+ 'old-station':'Между рамками гербария сохранилась страница: «Вернуться, когда отцветёт вереск. Возьму Савву в следующую прогулку — он уже слышит приближение дождя раньше меня». Почерк совпадает с обложкой из бухты. Человек из приюта наверняка узнает эти записи.',
+};
+type Host={near:(id:string)=>boolean;nearSavva:()=>boolean;dialog:(title:string,text:string)=>void;choice:(label:string,action:()=>void)=>void;journal:(s:FrontierState)=>void;toast:(t:string)=>void;load:()=>string|null;save:(s:string)=>void};
+export function createFrontierUI(h:Host){let state:FrontierState;try{state=restoreFrontier(h.load());}catch{state=restoreFrontier(null);}
+ function change(a:FrontierAction){const next=reduceFrontier(state,a);if(next===state)return;state=next;try{h.save(JSON.stringify(state));}catch{h.toast('История сохранится только до закрытия вкладки.');}h.journal(state);}
+ function unread(id:string){return id==='lost-cove'?state.diary==='new':!!PAGES[id]&&state.diary==='searching'&&!state.pages.includes(id);}
+ function readPage(id:string){if(state.pages.includes(id)&&PAGES[id])h.dialog('Страница полевого дневника',PAGES[id]);}
+ function discover(id:string){if(!unread(id)||!h.near(id))return false;if(id==='lost-cove'){change({type:'start-diary'});h.dialog('Когда отцветёт вереск','В обложке осталась записка: «Листы унесло ветром к одинокому дереву. Вторую тетрадь я оставила на станции, среди сухих трав». Внизу приписано другое имя — Савва. Ты сохраняешь обложку: возможно, в горном приюте знают, кому принадлежал дневник.');}else{change({type:'page',id});readPage(id);}h.choice('Следующий шаг',()=>h.dialog('Когда отцветёт вереск',diaryObjective(state)));return true;}
+ function talk(){if(!h.nearSavva())return;h.dialog('Савва',state.wind==='complete'?'Слышишь трубки над седловиной? Каждый раз думаю о твоей прогулке. Я Савва, храню приют и записи о погоде. Здесь всегда найдётся сухое место для гостя.':'Я Савва. Слежу за приютом и записываю погоду. На седловине раньше звенели медные трубки: в тумане по ним находили дом. Шнур перетёрся. Запасной остался на старой полевой станции, среди сухих трав. Поможешь вернуть горам голос?');
+  if(state.wind==='new')h.choice('Помочь восстановить ветровой сигнал',()=>{if(!h.nearSavva())return;change({type:'accept-wind'});h.dialog('У гор есть голос','На станции найдёшь коробку с прочным шнуром. Им можно подвесить трубки на седловине. Я пока просушу вещи у приюта. Возвращайся, когда услышишь звон.');});
+  else if(state.wind==='repaired')h.choice('Сигнал снова работает',()=>{if(!h.nearSavva())return;change({type:'finish-wind'});h.dialog('У гор есть голос · Завершено',WIND_END);});
+  else if(state.wind!=='complete')h.choice('Напомни, что нужно сделать',()=>h.dialog('У гор есть голос',windObjective(state)));
+  if(state.diary==='searching'&&state.pages.length===2)h.choice('Показать найденный дневник',()=>{if(!h.nearSavva())return;change({type:'finish-diary'});h.dialog('Когда отцветёт вереск · Завершено',DIARY_END);});
+  else if(state.diary==='searching')h.choice('Я нашёл обложку с твоим именем',()=>h.dialog('Савва','Мама часто брала записи к морю. А потом однажды вернулась без тетради. Я думал, её давно унесла вода. Если найдёшь страницы — принеси, пожалуйста.'));
+ }
+ function choices(id:string){
+  if(id==='old-station'&&state.wind==='accepted')h.choice('Взять прочный шнур',()=>{if(!h.near(id))return;change({type:'take-cord'});h.dialog('У гор есть голос','В коробке нашёлся сухой плетёный шнур. Ты забираешь нужный отрезок, остальное убираешь обратно. Теперь можно закрепить трубки на седловине.');});
+  if(id==='wind-saddle'&&state.wind==='equipped')h.choice('Подвесить медные трубки',()=>{if(!h.near(id))return;change({type:'repair-wind'});h.dialog('Поющая седловина','Ты продеваешь шнур через петли. Первый порыв раскачивает трубки. Тихий звук возвращается от скал — будто кто-то отозвался с другой стороны тумана. Нужно рассказать Савве.');});
+  if(PAGES[id]&&state.pages.includes(id))h.choice('Перечитать страницу дневника',()=>readPage(id));
+ }
+ h.journal(state);return {get state(){return state;},reset(){state=restoreFrontier(null);h.journal(state);},talk,unread,discover,choices,readPage,readWind:()=>h.dialog('У гор есть голос',WIND_END),readDiary:()=>h.dialog('Когда отцветёт вереск',DIARY_END)};
+}
+export {FRONTIER_SAVE_KEY};

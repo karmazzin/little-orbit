@@ -1,14 +1,27 @@
-import {type FrontierState,windObjective,diaryObjective} from './frontier.ts';
+import {type FrontierState,windObjective,diaryObjective} from './worlds/khvoya/frontier.ts';
 import type {Story} from './story.ts';
-import {type ContentState,contentObjective,irisCanBeObserved} from './content.ts';
-import {type Adventures,adventureHint,completedAdventures,festivalAvailable,ADVENTURE_POINTS,BOTTLE_IDS} from './adventures.ts';
-import {type Exploration,ALL_LANDMARKS,LANDMARKS,atObservatoryNight} from './landmarks.ts';
-import {type AzureStory,azureObjective,azureReady} from './azure-story.ts';
+import {type ContentState,contentObjective,irisCanBeObserved} from './worlds/khvoya/content.ts';
+import {type Adventures,adventureHint,completedAdventures,festivalAvailable,ADVENTURE_POINTS,BOTTLE_IDS} from './worlds/khvoya/adventures.ts';
+import {type Exploration,ALL_LANDMARKS,LANDMARKS,atObservatoryNight} from './worlds/khvoya/landmarks.ts';
+import {type AzureStory,azureObjective,azureReady} from './worlds/khvoya/azure-story.ts';
 export type JourneySnapshot={story:Story;content:ContentState;adventures:Adventures;exploration:Exploration;azure:AzureStory;seconds:number;beaconLit:boolean;noahTelling:boolean;known?:string[];frontier?:FrontierState};
 export type JourneyStatus='available'|'active'|'ready'|'waiting'|'complete'|'repeat';
 export const JOURNEY_STATUS:Record<JourneyStatus,string>={available:'Не начато',active:'В процессе',ready:'Можно завершить',waiting:'Нужно условие',complete:'Завершено',repeat:'Можно повторять'};
 export type JourneyEntry={id:string;title:string;group:'story'|'discovery'|'repeat';status:JourneyStatus;done:number;total:number;next:string};
-export function journeyEntries(s:JourneySnapshot):JourneyEntry[]{
+const JOURNEY_START_HINTS:Record<string,string>={
+ letters:'Поговори с Мирой у почты и предложи найти письма.',
+ postcards:'Спроси Миру об открытках.',
+ iris:'Найди одинокую палатку на дальней стороне и прочитай записку астронома. Палатка отмечена на карте M.',
+ meteor:'Поговори с Адой и спроси, что случилось этой ночью. Найти Аду можно на карте M.',
+ bell:'Поговори со Львом о пропавшем колокольчике. Найти Льва можно на карте M.',
+ cave:'Найди пещеру за Аркой ветров и осмотри знаки у входа.',
+ bottles:'Найди и прочитай первое письмо в бутылке на берегу.',
+ tales:'Поговори с Ноем и попроси прочитать историю из его тетради. Найти Ноя можно на карте M.',
+ azure:'Найди старый привал за еловой рощей и разверни оставленную карту.',
+ wind:'Поговори с Саввой у горного приюта о сломанном сигнале.',
+ diary:'Найди бухту с забытым дневником и осмотри его обложку.',
+};
+export function journeyEntries(s:JourneySnapshot,view:'known'|'unstarted'='known'):JourneyEntry[]{
  const {story:l,content:c,adventures:a,exploration:e,azure:z}=s;
  const completed=Number(l.phase==='complete')+Number(c.postcards==='complete')+Number(c.iris==='complete')+Number(z.complete)+Number(s.frontier?.wind==='complete')+Number(s.frontier?.diary==='complete');
  const missingCards=LANDMARKS.filter(p=>!c.cards.includes(p.id)).map(p=>p.name).join(', ');
@@ -16,7 +29,7 @@ export function journeyEntries(s:JourneySnapshot):JourneyEntry[]{
  const known=new Set(s.known??[]);
  const acquired:Record<string,boolean>={letters:l.phase!=='new'||l.letters.length>0,postcards:c.postcards!=='new'||c.cards.length>0,iris:c.iris!=='dormant'||c.clues.length>0,meteor:a.meteor!=='new',bell:a.bell!=='new'||a.tracks>0,cave:a.cave||a.runes>0,bottles:a.bottles.length>0,tales:a.tales.length>0,festival:a.festival,azure:z.complete||z.map||z.marks.length>0||z.bottle||z.entry!==null,places:e.places.length>0,'ada-night':e.nightMeeting,fireside:false,wind:!!s.frontier&&s.frontier.wind!=='new',diary:!!s.frontier&&s.frontier.diary!=='new'};
  const rows:JourneyEntry[]=[];
- function row(id:string,title:string,status:JourneyStatus,done:number,total:number,next:string,group:JourneyEntry['group']='story'){if(!known.has(id)&&!acquired[id])return;rows.push({id,title,status,done:total?(status==='complete'?total:Math.min(done,total)):done,total,next,group});}
+ function row(id:string,title:string,status:JourneyStatus,done:number,total:number,next:string,group:JourneyEntry['group']='story'){if(view==='unstarted'){if(group!=='story'||acquired[id])return;status='available';done=0;next=JOURNEY_START_HINTS[id]??next;}else if(!known.has(id)&&!acquired[id])return;rows.push({id,title,status,done:total?(status==='complete'?total:Math.min(done,total)):done,total,next,group});}
  row('letters','Письма на ветру',l.phase==='complete'?'complete':l.phase==='new'?'available':l.letters.length===3?'ready':'active',Number(l.phase!=='new')+l.letters.length,5,l.phase==='complete'?'Все письма переданы Мире.':l.phase==='new'?'Поговори с Мирой у почты и предложи найти письма.':l.letters.length===3?'Верни три найденных письма Мире.':`Найди оставшиеся письма у моста, озера и на холме. Собрано ${l.letters.length} из 3.`);
  row('postcards','Альбом для сестры',c.postcards==='complete'?'complete':c.postcards==='new'?'available':c.cards.length===3?'ready':'active',Number(c.postcards!=='new')+c.cards.length,5,c.postcards==='complete'?'Альбом передан Мире.':c.postcards==='new'?'Спроси Миру об открытках.':c.cards.length===3?'Покажи готовый альбом Мире.':`Зарисуй: ${missingCards}. Нажми P на месте.`);
  row('iris','Сигнал Ириса',c.iris==='complete'?'complete':c.iris==='dormant'?'available':c.iris==='observed'?'ready':c.clues.length===3&&!irisCanBeObserved(s.seconds)?'waiting':'active',c.clues.length+Number(c.iris==='observed'),5,c.iris==='observed'?'Покажи запись вспышек Аде. Найди её на карте M или постучи в её дом.':contentObjective(c));

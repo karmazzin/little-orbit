@@ -1,5 +1,5 @@
 import * as T from 'three';
-import {sample,RADIUS} from './terrain.ts';
+import {sample,RADIUS} from './worlds/khvoya/terrain.ts';
 /** Small, deterministic atlas surfaces. Home uses the playable world's elevation. */
 export function createAtlasPlanet(index:number,home:boolean,color:number,detail=14){
  const root=new T.Group(),surface=new T.Group();surface.name='surface';root.add(surface);

@@ -22,3 +22,17 @@ test('there are playable night windows to observe Iris from the telescope',()=>{
  assert.ok(Array.from({length:360},(_,t)=>irisCanBeObserved(t)).some(Boolean));
  assert.ok(Array.from({length:360},(_,t)=>irisCanBeObserved(t)).some(v=>!v));
 });
+test('free sketches unlock after album delivery and survive reload without changing quest cards',()=>{
+ let s=initialContent();
+ assert.equal(reduceContent(s,{type:'sketch',id:'cave'}),s);
+ s=reduceContent(s,{type:'accept'});
+ assert.equal(reduceContent(s,{type:'sketch',id:'cave'}),s);
+ for(const p of LANDMARKS)s=reduceContent(s,{type:'card',id:p.id});
+ s=reduceContent(s,{type:'deliver'});
+ for(const id of ['cave','traveler','lookout'])s=reduceContent(s,{type:'sketch',id});
+ assert.deepEqual(s.sketches,['cave','traveler','lookout']);
+ assert.equal(s.cards.length,3);assert.equal(s.postcards,'complete');
+ assert.equal(reduceContent(s,{type:'sketch',id:'cave'}),s);
+ assert.equal(reduceContent(s,{type:'sketch',id:'fake'}),s);
+ assert.deepEqual(restoreContent(JSON.stringify(s)),s);
+});

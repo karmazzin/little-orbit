@@ -37,14 +37,15 @@ export function localPhase(seconds:number,up:T.Vector3){
  if(altitude>.2)return 'День';
  return solarState(seconds+.2).sunDirection.dot(up)>altitude?'Рассвет':'Закат';
 }
-export function createSky(scene:T.Scene,stars:T.Points<T.BufferGeometry,T.PointsMaterial>){
- const atmosphere=createAtmosphere(scene);
+export function createSky(scene:T.Scene,stars:T.Points<T.BufferGeometry,T.PointsMaterial>,options:{state?:(seconds:number)=>ReturnType<typeof solarState>;radius?:number}={}){
+ const stateAt=options.state??solarState;
+ const atmosphere=createAtmosphere(scene,options.radius);
  const ambient=new T.AmbientLight(0xb5c9ee,.25);
  const fill=new T.HemisphereLight(0xb8dfff,0x324b60,.6);
  const sun=new T.DirectionalLight(0xffedcf,3);
  sun.castShadow=true;resizeShadow(sun,1024);
  Object.assign(sun.shadow.camera,{left:-90,right:90,top:90,bottom:-90,near:1,far:500});
- sun.shadow.camera.up.set(0,0,1);sun.position.copy(solarState(DAY_SECONDS*.43).sunDirection).multiplyScalar(220);
+ sun.shadow.camera.up.set(0,0,1);sun.position.copy(stateAt(DAY_SECONDS*.43).sunDirection).multiplyScalar(220);
  sun.shadow.normalBias=.06;sun.shadow.bias=-.0001;scene.add(ambient,fill,sun);
  const disk=createAtlasStar(32);disk.scale.setScalar(10/12);scene.add(disk);
  const domeMat=new T.ShaderMaterial({side:T.BackSide,depthWrite:false,depthTest:false,toneMapped:false,
@@ -56,7 +57,7 @@ export function createSky(scene:T.Scene,stars:T.Points<T.BufferGeometry,T.Points
   }`});
  const dome=new T.Mesh(new T.SphereGeometry(850,32,16),domeMat);dome.renderOrder=-100;dome.frustumCulled=false;scene.add(dome);
  return {sun,syncSun(direction:T.Vector3){sun.position.copy(direction).multiplyScalar(220);},followCamera(camera:T.PerspectiveCamera,space:boolean){atmosphere.updateView(camera,space);dome.position.copy(camera.position);dome.visible=!space;},update(seconds:number,camera:T.PerspectiveCamera,up:T.Vector3,space:boolean){
-  const state=solarState(seconds),sky=localSky(state.sunDirection,up);
+  const state=stateAt(seconds),sky=localSky(state.sunDirection,up);
   atmosphere.updateSun(state.sunDirection);atmosphere.updateView(camera,space);
   sun.color.set(0xffedcf).lerp(new T.Color(0xffc391),space?0:sky.twilight*.6);
   sun.intensity=3.2;

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Shared HUD regression</title>
+<canvas id="canvas" tabindex="0"></canvas>
+<dialog id="conversation"><button data-close="conversation">Close</button></dialog>
+<dialog id="journal"><button data-close="journal">Close</button></dialog>
+<dialog id="help"></dialog><dialog id="system-map-dialog"></dialog><dialog id="reset-dialog"></dialog>
+<div id="time-panel" hidden></div><div id="mobile-actions" hidden></div>
+<button id="mobile-menu" aria-expanded="false">Menu</button>
+<button id="mobile-fullscreen">Fullscreen</button><button id="mobile-overview">Overview</button><button id="mobile-system">System</button><button id="mobile-journal">Journal</button><button id="mobile-postcard">Postcard</button><button id="mobile-help">Help</button><button id="mobile-quality">Quality</button>
+<select id="quality-select"><option value="economy">Economy</option><option value="balanced">Balanced</option><option value="high">High</option></select>
+<div id="overview-label"><small></small></div><button id="movement-action"><span></span></button><div id="movement-status"></div><button id="touch-jump">Jump</button>
+<pre id="result">Running…</pre>
+<script type="module">
+import {createDialogs,setupMobileMenu,updateMovementControl} from '../src/runtime/hud.ts';
+import {createSessionState} from '../src/runtime/session.ts';
+const $=id=>document.getElementById(id),session=createSessionState();
+const checks=[];let refreshes=0,releases=0;
+function check(value,label){if(!value)throw new Error(label);checks.push(label);}
+function queue(){session.keys.add('KeyW');session.jumpQueued=true;session.modeQueued=true;session.drag=true;}
+const makeDialogs=closePanelsOnOpen=>createDialogs({session,canvas:$('canvas'),releaseMouse:()=>releases++,refreshJournal:()=>refreshes++,closePanelsOnOpen});
+const settle=()=>new Promise(resolve=>setTimeout(resolve,30));
+try{
+ const khvoya=makeDialogs(false);khvoya.bindCloseButtons();
+ $('time-panel').hidden=false;$('mobile-actions').hidden=false;$('mobile-menu').setAttribute('aria-expanded','true');queue();
+ khvoya.openDialog('journal');
+ check($('journal').open&&refreshes===1,'Opening journal refreshes its contents');
+ check(!session.keys.size&&!session.jumpQueued&&!session.modeQueued&&!session.drag&&releases===1,'Opening modal releases pointer and clears queued movement');
+ check(!$('time-panel').hidden&&!$('mobile-actions').hidden&&$('mobile-menu').getAttribute('aria-expanded')==='true','Khvoya retains open time panel and mobile menu');
+ check(khvoya.isPaused(),'Open modal pauses gameplay');
+ document.querySelector('[data-close="journal"]').click();await settle();check(!$('journal').open&&document.activeElement===$('canvas'),'Close button closes modal and returns canvas focus');
+ const amber=makeDialogs(true);queue();amber.openDialog('help');
+ check($('time-panel').hidden&&$('mobile-actions').hidden&&$('mobile-menu').getAttribute('aria-expanded')==='false','Amber closes time panel and mobile menu on modal open');
+ amber.openDialog('conversation');check(!$('help').open&&$('conversation').open,'Opening another modal closes previous one');
+ $('conversation').close();await settle();check(document.activeElement===$('canvas'),'Native dialog close returns canvas focus');
+ check(!amber.isPaused(),'No modal or panel leaves gameplay unpaused');
+ let quality='balanced';const applied=[],routes=[];
+ const route=name=>{check($('mobile-actions').hidden&&$('mobile-menu').getAttribute('aria-expanded')==='false',`Menu closes before ${name}`);routes.push(name);};
+ session.started=true;
+ setupMobileMenu({session,touchMode:true,player:()=>({mode:'walk'}),isPaused:()=>false,releaseMouse:()=>releases++,toast:()=>{},closeMobileMenu:amber.closeMobileMenu,toggleOverview:()=>route('overview'),openSystemMap:()=>route('system'),openDialog:id=>route(id),drawPostcard:()=>route('postcard'),getQuality:()=>quality,applyQuality:value=>{quality=value;applied.push(value);}});
+ check(quality==='economy'&&$('quality-select').value==='economy','Touch setup selects economy graphics');
+ queue();$('mobile-menu').click();check(!$('mobile-actions').hidden&&$('mobile-menu').getAttribute('aria-expanded')==='true'&&!session.keys.size&&!session.jumpQueued&&!session.modeQueued,'Opening mobile menu updates accessibility and clears movement');
+ $('mobile-menu').click();check($('mobile-actions').hidden&&$('mobile-menu').getAttribute('aria-expanded')==='false','Mobile menu toggles closed accessibly');
+ for(const name of ['overview','system','journal','postcard','help']){$('mobile-menu').click();$('mobile-'+name).click();}
+ check(routes.join(',')==='overview,system,journal,postcard,help','Mobile actions route to supplied callbacks');
+ session.overview=true;$('mobile-menu').click();$('mobile-postcard').click();check(routes.length===5&&$('mobile-actions').hidden,'Overview suppresses postcard and still closes menu');session.overview=false;
+ for(const expected of ['balanced','high','economy']){$('mobile-quality').click();check(quality===expected&&$('quality-select').value===expected&&$('mobile-quality').textContent.startsWith('Графика: '),`Quality cycles to ${expected}`);}
+ updateMovementControl(false,'swim','walk');check(!$('movement-action').hidden&&$('movement-action').getAttribute('aria-label')==='Плавать'&&$('movement-action').querySelector('span').textContent==='Плавать'&&$('movement-status').hidden&&!$('touch-jump').hidden,'Shore entry shows swim action and jump');
+ updateMovementControl(false,'walk','swim');check(!$('movement-action').hidden&&$('movement-action').getAttribute('aria-label')==='На берег'&&!$('movement-status').hidden&&$('touch-jump').hidden,'Swimming shows shore action and swimming status');
+ updateMovementControl(false,null,'walk');check($('movement-action').hidden&&$('movement-status').hidden,'Away from shore hides movement action');
+ updateMovementControl(true,'walk','swim');check($('movement-action').hidden&&$('movement-status').hidden,'Paused HUD hides movement action and swimming status');
+ window.runtimeHudResults={passed:checks.length,checks};$('result').textContent=`PASS: ${checks.length} checks\n${checks.join('\n')}`;
+}catch(error){window.runtimeHudResults={passed:checks.length,error:String(error),checks};$('result').textContent=`FAIL: ${error}\n${checks.join('\n')}`;throw error;}
+</script></html>

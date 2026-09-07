@@ -1,13 +1,14 @@
 import {ATMOSPHERE_RADIUS} from './environment.ts';
 import * as T from 'three';
-import {RADIUS} from './terrain.ts';
+import {RADIUS} from './worlds/khvoya/terrain.ts';
 
 /** A single transparent shell, lit by the same sun as the world. No shadow pass. */
-export function createAtmosphere(scene:T.Scene){
+export function createAtmosphere(scene:T.Scene,radius=RADIUS){
+ const outerRadius=radius+(ATMOSPHERE_RADIUS-RADIUS);
  const material=new T.ShaderMaterial({
   transparent:true,side:T.BackSide,depthWrite:false,depthTest:true,
   blending:T.AdditiveBlending,toneMapped:false,
-  uniforms:{sunDirection:{value:new T.Vector3(0,1,0)},strength:{value:0},surfaceRadius:{value:RADIUS+4},outerRadius:{value:ATMOSPHERE_RADIUS}},
+  uniforms:{sunDirection:{value:new T.Vector3(0,1,0)},strength:{value:0},surfaceRadius:{value:radius+4},outerRadius:{value:outerRadius}},
   vertexShader:`varying vec3 worldPoint;
    void main(){worldPoint=(modelMatrix*vec4(position,1.0)).xyz;gl_Position=projectionMatrix*viewMatrix*vec4(worldPoint,1.0);}`,
   fragmentShader:`varying vec3 worldPoint;
@@ -35,11 +36,11 @@ export function createAtmosphere(scene:T.Scene){
     #include <colorspace_fragment>
    }`,
  });
- const shell=new T.Mesh(new T.SphereGeometry(ATMOSPHERE_RADIUS,64,32),material);
+ const shell=new T.Mesh(new T.SphereGeometry(outerRadius,64,32),material);
  shell.name='Planet atmosphere';shell.renderOrder=3;shell.visible=false;scene.add(shell);
  return {shell,material,updateSun(direction:T.Vector3){material.uniforms.sunDirection.value.copy(direction).normalize();},
   updateView(camera:T.Camera,space:boolean){
-   const strength=space?T.MathUtils.smoothstep(camera.position.length(),RADIUS+16,RADIUS+55):0;
+   const strength=space?T.MathUtils.smoothstep(camera.position.length(),radius+16,radius+55):0;
    material.uniforms.strength.value=strength;shell.visible=strength>0;
   }};
 }

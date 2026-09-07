@@ -1,3 +1,4 @@
+import {gameStorage as localStorage} from './runtime/storage.ts';
 import {JOURNEY_STATUS,journeySummary,resolveJourneySelection,type JourneyEntry} from './journey.ts';
 export function createJourneyUI(h:{focusControls:()=>void;openJournal:()=>void;load:()=>string|null;save:(id:string)=>void}){
  const get=(id:string)=>document.getElementById(id)!;

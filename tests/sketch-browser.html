@@ -1,0 +1,23 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Зарисовки · проверка</title><link rel="stylesheet" href="../src/style.css"><style>body{overflow:auto;background:#223c36;padding:24px;height:auto}#gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px;max-width:1100px;margin:auto}#journal{position:static;transform:none;max-height:none;margin:24px auto;width:min(600px,100%)}#journal-body{max-height:500px}h1{font-size:22px;text-align:center;margin:20px}#result{text-align:center;margin:20px}</style><h1>Мой мир · цветные карандаши</h1><div id="gallery"></div><button id="draw">Нарисовать пещеру и повозку</button><section id="journal"><nav class="journal-nav"><button data-journal-section="world">Мир</button><button data-journal-section="findings">Находки</button><button data-journal-section="active">В процессе</button><button data-journal-section="unstarted">Не начато</button><button data-journal-section="complete">Завершённые</button></nav><div id="journal-body"></div></section><p id="result"></p><script type="module">
+import {postcardMarkup} from '../src/postcards.ts';
+import {SKETCH_PLACES} from '../src/sketch-places.ts';
+import {createJournalUI} from '../src/journal-ui.ts';
+import {journeyEntries} from '../src/journey.ts';
+import {initialStory} from '../src/story.ts';
+import {initialContent,reduceContent,restoreContent} from '../src/content.ts';
+import {initialAdventures} from '../src/adventures.ts';
+import {initialExploration} from '../src/landmarks.ts';
+import {initialAzureStory} from '../src/azure-story.ts';
+import {initialFrontier} from '../src/frontier.ts';
+const ids=['arch','grove','lookout','cave','traveler','azure-beacon'];
+document.getElementById('gallery').innerHTML=ids.map(postcardMarkup).join('');
+let content=reduceContent(initialContent(),{type:'accept'});
+for(const id of ['arch','grove','lookout'])content=reduceContent(content,{type:'card',id});
+content=reduceContent(content,{type:'deliver'});
+const saved=localStorage.getItem('sketch-browser-test-v1');if(saved)content=restoreContent(saved);
+const s={story:initialStory(),content,adventures:initialAdventures(),exploration:{...initialExploration(),places:['lookout']},azure:initialAzureStory(),frontier:initialFrontier(),seconds:0,beaconLit:false,noahTelling:false};
+const ui=createJournalUI({track:()=>{}});
+function render(){s.content=content;ui.update(s,journeyEntries(s),'',false);document.querySelector('[data-journal-section="world"]').click();const cards=[...document.querySelectorAll('#journal-body .postcard strong')];const pass=cards.length===new Set([...content.cards,...content.sketches??[]]).size&&document.querySelectorAll('#journal-body details').length===0;document.getElementById('result').textContent=pass?'PASS · открытки видны сразу, записей о местах нет. Сохранено: '+cards.length:'FAIL';}
+document.getElementById('draw').onclick=()=>{for(const id of ['cave','traveler'])content=reduceContent(content,{type:'sketch',id});localStorage.setItem('sketch-browser-test-v1',JSON.stringify(content));render();};
+render();
+</script></html>

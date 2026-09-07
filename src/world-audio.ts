@@ -1,5 +1,5 @@
-import {createFireBuffer} from './hearth.ts';
-import type {Sound,SoundMix} from './soundscape.ts';
+import {createFireBuffer} from './worlds/khvoya/hearth.ts';
+import type {Sound,SoundMix} from './worlds/khvoya/soundscape.ts';
 
 type Voice={source:AudioBufferSourceNode;gain:GainNode;pan:StereoPannerNode};
 const LOOPS=new Set(['wind','river','leaves','crickets','fire']);

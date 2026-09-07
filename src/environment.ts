@@ -1,4 +1,4 @@
-import {RADIUS} from './terrain.ts';
+import {RADIUS} from './worlds/khvoya/terrain.ts';
 import {Quaternion,Vector3} from 'three';
 // Shared radial envelope: cloud geometry has several units of clear fading air above it.
 export const CLOUD_BASE_RADIUS=RADIUS+28;
